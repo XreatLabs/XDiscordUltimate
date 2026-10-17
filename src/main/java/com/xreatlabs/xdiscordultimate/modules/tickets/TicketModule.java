@@ -19,6 +19,19 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.interactions.commands.build.SlashCommandData;
 import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
+import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.GenericComponentInteractionCreateEvent;
+import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
+import net.dv8tion.jda.api.interactions.components.ItemComponent;
+import net.dv8tion.jda.api.interactions.components.LayoutComponent;
+import net.dv8tion.jda.api.interactions.components.selections.SelectMenu;
+import net.dv8tion.jda.api.interactions.components.selections.SelectOption;
+import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
+import net.dv8tion.jda.api.interactions.components.text.TextInput;
+import net.dv8tion.jda.api.interactions.components.text.TextInputStyle;
+import net.dv8tion.jda.api.interactions.modals.Modal;
+import net.dv8tion.jda.api.interactions.modals.ModalMapping;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -101,6 +114,11 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     private String panelButtonLabel;
     private String panelButtonEmoji;
     private String panelButtonStyle;
+    private String panelMode;
+    private String panelSelectPlaceholder;
+    private final Map<String, PanelConfig> panels = new LinkedHashMap<>();
+    private final Map<String, String> panelChannelIds = new ConcurrentHashMap<>();
+    private final Map<String, String> panelMessageIds = new ConcurrentHashMap<>();
 
     // Welcome embed customization
     private String welcomeTitle;
@@ -231,6 +249,8 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                     new SubcommandData("removeuser", "Remove a member from the current ticket")
                         .addOption(OptionType.USER, "user", "Member to remove", true),
                     new SubcommandData("info", "Show your open tickets and active ticket count"),
+                    new SubcommandData("panel", "Post or refresh a ticket panel")
+                        .addOption(OptionType.STRING, "id", "Panel id from config (empty for all panels)", false),
                     new SubcommandData("priority", "Change the priority of the current ticket")
                         .addOption(OptionType.STRING, "level", "New priority: LOW, MEDIUM, HIGH, URGENT", true)
                 )
@@ -275,6 +295,11 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             return true;
         }
 
+        if ("panel".equals(subcommand)) {
+            handleSlashPanel(event, member);
+            return true;
+        }
+
         if ("close".equals(subcommand)) {
             handleSlashCloseTicket(event, member);
             return true;
@@ -302,6 +327,32 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
         handleSlashCreateTicket(event, member);
         return true;
+    }
+
+    private void handleSlashPanel(SlashCommandInteractionEvent event, Member member) {
+        if (!member.hasPermission(Permission.MANAGE_SERVER)
+            && !member.hasPermission(Permission.MANAGE_CHANNEL)) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
+                    "You need the Manage Server permission to post ticket panels.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+        String requested = event.getOption("id") != null ? event.getOption("id").getAsString().trim() : "";
+        int posted = 0;
+        for (PanelConfig panel : panels.values()) {
+            if (!requested.isEmpty() && !panel.id.equalsIgnoreCase(requested)) continue;
+            postOrUpdatePanel(event.getGuild(), panel);
+            posted++;
+        }
+        if (posted == 0) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Unknown Panel",
+                    "No panel matches '" + requested + "'. Check the panels section in config.yml.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+        event.replyEmbeds(EmbedUtils.successEmbed("Panels Updated",
+                requested.isEmpty() ? "Reposting all ticket panels." : "Reposting the '" + requested + "' panel.").build())
+            .setEphemeral(true).queue();
     }
 
     private void handleSlashTicketEdit(SlashCommandInteractionEvent event, Member member, String editType) {
@@ -922,6 +973,8 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             panelButtonLabel = config.getString("panel.button-label", "Create Ticket");
             panelButtonEmoji = config.getString("panel.button-emoji", "🎫");
             panelButtonStyle = config.getString("panel.button-style", "PRIMARY");
+            panelMode = config.getString("panel.mode", "buttons");
+            panelSelectPlaceholder = config.getString("panel.select-placeholder", "Select a ticket type");
 
             welcomeTitle = config.getString("welcome.title", "Ticket #%id% - %priority%");
             welcomeDescription = config.getString("welcome.description",
@@ -956,6 +1009,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
             loadPriorityOverrides(config.getConfigurationSection("priorities"));
             loadTicketTypes(config.getConfigurationSection("types"));
+            loadPanels(config);
         } else {
             warning("Config section not found, using defaults");
             ticketCategoryName = "Support Tickets";
@@ -997,9 +1051,12 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             creationCooldownSeconds = 60;
             feedbackEnabled = true;
             transcriptFormat = "text";
+            panelMode = "buttons";
+            panelSelectPlaceholder = "Select a ticket type";
             maxOpenPerType.clear();
             loadPriorityOverrides(null);
             loadTicketTypes(null);
+            loadPanels(null);
         }
 
         debug("Ticket category: " + ticketCategoryName + ", types: " + ticketTypes.keySet());
@@ -1037,27 +1094,76 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                 ConfigurationSection entry = section.getConfigurationSection(id);
                 if (entry == null) continue;
                 String safeId = id.toLowerCase().replaceAll("[^a-z0-9_-]", "_");
-                ticketTypes.put(safeId, new TicketType(
-                    safeId,
-                    entry.getString("label", id),
-                    entry.getString("emoji", panelButtonEmoji),
-                    entry.getString("style", panelButtonStyle),
-                    entry.getString("category", ticketCategoryName),
-                    entry.getString("support-role", supportRoleName),
-                    entry.getString("channel-name-format", channelNameFormat),
-                    entry.getString("subject", entry.getString("label", "General Support")),
-                    entry.getString("welcome-title", null),
-                    entry.getString("welcome-description", null),
-                    entry.getString("color", null),
-                    entry.getString("gui-material", "PAPER")
-                ));
+                TicketType type = new TicketType(safeId, entry.getString("label", id));
+                type.emoji = entry.getString("emoji", panelButtonEmoji);
+                type.style = entry.getString("style", panelButtonStyle);
+                type.category = entry.getString("category", ticketCategoryName);
+                type.supportRole = entry.getString("support-role", supportRoleName);
+                type.channelNameFormat = entry.getString("channel-name-format", channelNameFormat);
+                type.subject = entry.getString("subject", entry.getString("label", "General Support"));
+                type.welcomeTitle = entry.getString("welcome-title", null);
+                type.welcomeDescription = entry.getString("welcome-description", null);
+                type.color = entry.getString("color", null);
+                type.guiMaterial = entry.getString("gui-material", "PAPER");
+                type.optionDescription = entry.getString("description", "");
+                type.pingRole = entry.getString("ping-role", "");
+                type.transcriptChannel = entry.getString("transcript-channel", "");
+                type.autoCloseHours = entry.getInt("auto-close-hours", -1);
+                for (String question : entry.getStringList("questions")) {
+                    if (question != null && !question.trim().isEmpty() && type.questions.size() < 5) {
+                        type.questions.add(question.trim());
+                    }
+                }
+                ticketTypes.put(safeId, type);
             }
         }
         if (ticketTypes.isEmpty()) {
-            ticketTypes.put("default", new TicketType(
-                "default", panelButtonLabel, panelButtonEmoji, panelButtonStyle,
-                ticketCategoryName, supportRoleName, channelNameFormat, "General Support",
-                null, null, null, "PAPER"));
+            TicketType type = new TicketType("default", panelButtonLabel);
+            type.emoji = panelButtonEmoji;
+            type.style = panelButtonStyle;
+            type.category = ticketCategoryName;
+            type.supportRole = supportRoleName;
+            type.channelNameFormat = channelNameFormat;
+            type.subject = "General Support";
+            ticketTypes.put("default", type);
+        }
+    }
+
+    private void loadPanels(ConfigurationSection ticketsRoot) {
+        panels.clear();
+        ConfigurationSection section = ticketsRoot != null
+            ? ticketsRoot.getConfigurationSection("panels") : null;
+
+        if (section == null || section.getKeys(false).isEmpty()) {
+            PanelConfig panel = new PanelConfig("default");
+            panel.title = panelTitle;
+            panel.description = panelDescription;
+            panel.color = panelColorHex;
+            panel.image = panelImage;
+            panel.thumbnail = panelThumbnail;
+            panel.footer = panelFooter;
+            panel.mode = panelMode;
+            panel.selectPlaceholder = panelSelectPlaceholder;
+            panels.put("default", panel);
+            return;
+        }
+
+        for (String id : section.getKeys(false)) {
+            ConfigurationSection entry = section.getConfigurationSection(id);
+            if (entry == null) continue;
+            String safeId = id.toLowerCase().replaceAll("[^a-z0-9_-]", "_");
+            PanelConfig panel = new PanelConfig(safeId);
+            panel.channelSpec = entry.getString("channel", "");
+            panel.mode = entry.getString("mode", panelMode);
+            panel.title = entry.getString("title", panelTitle);
+            panel.description = entry.getString("description", panelDescription);
+            panel.color = entry.getString("color", panelColorHex);
+            panel.image = entry.getString("image", panelImage);
+            panel.thumbnail = entry.getString("thumbnail", panelThumbnail);
+            panel.footer = entry.getString("footer", panelFooter);
+            panel.selectPlaceholder = entry.getString("select-placeholder", panelSelectPlaceholder);
+            panel.typeIds.addAll(entry.getStringList("types"));
+            panels.put(safeId, panel);
         }
     }
 
@@ -1136,53 +1242,71 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         Guild guild = plugin.getDiscordManager().getMainGuild();
         if (guild == null) return;
 
-        TextChannel panelChannel = resolvePanelChannel(guild);
+        for (PanelConfig panel : panels.values()) {
+            try {
+                postOrUpdatePanel(guild, panel);
+            } catch (Exception e) {
+                warning("Failed to set up the '" + panel.id + "' ticket panel: " + e.getMessage());
+            }
+        }
+    }
+
+    private void postOrUpdatePanel(Guild guild, PanelConfig panel) {
+        TextChannel panelChannel = resolvePanelChannel(guild, panel);
         if (panelChannel == null) {
-            warning("Could not find or create the ticket panel channel");
+            warning("Could not find or create the panel channel for '" + panel.id + "'");
             return;
         }
 
-        // Remove the panel from the old channel if it moved
-        if (!panelMessageId.isEmpty() && !panelChannelId.isEmpty()
-            && !panelChannelId.equals(panelChannel.getId())) {
-            TextChannel oldChannel = guild.getTextChannelById(panelChannelId);
-            if (oldChannel != null) {
-                oldChannel.deleteMessageById(panelMessageId).queue(
-                    success -> debug("Removed old ticket panel from #" + oldChannel.getName()),
-                    failure -> debug("Could not remove old ticket panel: " + failure.getMessage()));
-            }
-            panelMessageId = "";
+        String storedChannel = panelChannelIds.getOrDefault(panel.id, "");
+        String storedMessage = panelMessageIds.getOrDefault(panel.id, "");
+        if ("default".equals(panel.id)) {
+            if (storedChannel.isEmpty()) storedChannel = panelChannelId;
+            if (storedMessage.isEmpty()) storedMessage = panelMessageId;
         }
 
+        // Remove the panel from the old channel if it moved
+        if (!storedMessage.isEmpty() && !storedChannel.isEmpty()
+            && !storedChannel.equals(panelChannel.getId())) {
+            TextChannel oldChannel = guild.getTextChannelById(storedChannel);
+            if (oldChannel != null) {
+                oldChannel.deleteMessageById(storedMessage).queue(
+                    success -> debug("Removed old '" + panel.id + "' ticket panel"),
+                    failure -> {});
+            }
+            storedMessage = "";
+        }
+
+        final String panelMessage = storedMessage;
         final TextChannel target = panelChannel;
-        if (!panelMessageId.isEmpty()) {
+        if (!panelMessage.isEmpty()) {
             // Update the existing panel
-            target.retrieveMessageById(panelMessageId).queue(
-                message -> message.editMessageEmbeds(buildPanelEmbed().build())
-                    .setActionRow(buildPanelButtons())
+            target.retrieveMessageById(panelMessage).queue(
+                message -> message.editMessageEmbeds(buildPanelEmbed(panel).build())
+                    .setActionRow(buildPanelActions(panel))
                     .queue(
-                        success -> debug("Updated existing ticket panel in #" + target.getName()),
+                        success -> debug("Updated '" + panel.id + "' ticket panel in #" + target.getName()),
                         failure -> {
                             warning("Failed to update ticket panel: " + failure.getMessage());
-                            sendNewPanel(target);
+                            sendNewPanel(target, panel);
                         }),
-                failure -> sendNewPanel(target));
+                failure -> sendNewPanel(target, panel));
         } else {
             // Remove old panels before posting a fresh one
             target.getHistory().retrievePast(20).queue(
                 messages -> {
                     for (Message message : messages) {
-                        if (message.getAuthor().isBot() && hasCreateTicketButton(message)) {
+                        if (message.getAuthor().isBot() && hasCreateTicketComponent(message)) {
                             message.delete().queue(success -> {}, failure -> {});
                         }
                     }
-                    sendNewPanel(target);
+                    sendNewPanel(target, panel);
                 },
-                failure -> sendNewPanel(target));
+                failure -> sendNewPanel(target, panel));
         }
     }
 
-    private boolean hasCreateTicketButton(Message message) {
+    private boolean hasCreateTicketComponent(Message message) {
         try {
             for (Button button : message.getButtons()) {
                 String id = button.getId();
@@ -1190,25 +1314,38 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                     return true;
                 }
             }
+            for (LayoutComponent component : message.getComponents()) {
+                if (!(component instanceof ActionRow)) continue;
+                for (ItemComponent item : ((ActionRow) component).getComponents()) {
+                    if (item instanceof SelectMenu
+                        && ((SelectMenu) item).getId().startsWith("create_ticket")) {
+                        return true;
+                    }
+                }
+            }
         } catch (Exception ignored) {
         }
         return false;
     }
 
-    private void sendNewPanel(TextChannel channel) {
-        channel.sendMessageEmbeds(buildPanelEmbed().build())
-            .setActionRow(buildPanelButtons())
+    private void sendNewPanel(TextChannel channel, PanelConfig panel) {
+        channel.sendMessageEmbeds(buildPanelEmbed(panel).build())
+            .setActionRow(buildPanelActions(panel))
             .queue(
                 sent -> {
-                    panelChannelId = channel.getId();
-                    panelMessageId = sent.getId();
+                    panelChannelIds.put(panel.id, channel.getId());
+                    panelMessageIds.put(panel.id, sent.getId());
+                    if ("default".equals(panel.id)) {
+                        panelChannelId = channel.getId();
+                        panelMessageId = sent.getId();
+                    }
                     saveData();
-                    debug("Posted ticket panel in #" + channel.getName());
+                    debug("Posted '" + panel.id + "' ticket panel in #" + channel.getName());
                 },
                 failure -> warning("Failed to send ticket panel: " + failure.getMessage()));
     }
 
-    private EmbedBuilder buildPanelEmbed() {
+    private EmbedBuilder buildPanelEmbed(PanelConfig panel) {
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("%max_tickets%", String.valueOf(maxOpenTickets));
         placeholders.put("%auto_close_hours%", String.valueOf(inactiveHours));
@@ -1217,32 +1354,71 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         placeholders.put("%enabled%", String.valueOf(autoCloseInactive));
 
         EmbedBuilder embed = new EmbedBuilder()
-            .setTitle(applyPlaceholders(panelTitle, placeholders))
-            .setDescription(applyPlaceholders(panelDescription, placeholders))
+            .setTitle(applyPlaceholders(panel.title, placeholders))
+            .setDescription(applyPlaceholders(panel.description, placeholders))
             .setTimestamp(Instant.now());
 
-        String footer = applyPlaceholders(panelFooter, placeholders);
-        if (!footer.isEmpty()) {
+        String footer = applyPlaceholders(panel.footer, placeholders);
+        if (footer != null && !footer.isEmpty()) {
             embed.setFooter(footer, null);
         }
 
-        Color color = parseColor(panelColorHex, EmbedUtils.BRAND_PRIMARY);
+        Color color = parseColor(panel.color, EmbedUtils.BRAND_PRIMARY);
         embed.setColor(color);
         try {
-            if (panelImage != null && !panelImage.isEmpty()) embed.setImage(panelImage);
-            if (panelThumbnail != null && !panelThumbnail.isEmpty()) embed.setThumbnail(panelThumbnail);
+            if (panel.image != null && !panel.image.isEmpty()) embed.setImage(panel.image);
+            if (panel.thumbnail != null && !panel.thumbnail.isEmpty()) embed.setThumbnail(panel.thumbnail);
         } catch (IllegalArgumentException ignored) {
         }
         plugin.getEmbedUtils().applyStyle("ticket-panel", embed);
         return embed;
     }
 
-    private List<Button> buildPanelButtons() {
+    private List<ItemComponent> buildPanelActions(PanelConfig panel) {
+        List<ItemComponent> row = new ArrayList<>();
+        if ("dropdown".equalsIgnoreCase(panel.mode)) {
+            row.add(buildPanelMenu(panel));
+        } else {
+            row.addAll(buildPanelButtons(panel));
+        }
+        return row;
+    }
+
+    private ItemComponent buildPanelMenu(PanelConfig panel) {
+        String placeholder = panel.selectPlaceholder != null && !panel.selectPlaceholder.isEmpty()
+            ? panel.selectPlaceholder : "Select a ticket type";
+        StringSelectMenu.Builder menu = StringSelectMenu
+            .create("create_ticket_menu:" + panel.id)
+            .setPlaceholder(placeholder)
+            .setRequiredRange(1, 1);
+
+        int added = 0;
+        for (TicketType type : resolvePanelTypes(panel)) {
+            if (added >= 25) break;
+            SelectOption option = SelectOption.of(type.id, type.label);
+            if (type.optionDescription != null && !type.optionDescription.isEmpty()) {
+                option = option.withDescription(type.optionDescription);
+            }
+            if (type.emoji != null && !type.emoji.isEmpty()) {
+                try {
+                    option = option.withEmoji(Emoji.fromUnicode(type.emoji));
+                } catch (Exception ignored) {
+                }
+            }
+            menu.addOptions(option);
+            added++;
+        }
+        if (added == 0) {
+            TicketType fallback = defaultTicketType();
+            menu.addOptions(SelectOption.of(fallback.id, fallback.label));
+        }
+        return menu.build();
+    }
+
+    private List<Button> buildPanelButtons(PanelConfig panel) {
         List<Button> buttons = new ArrayList<>();
-        int limit = Math.min(ticketTypes.size(), 5);
-        int index = 0;
-        for (TicketType type : ticketTypes.values()) {
-            if (index++ >= limit) break;
+        for (TicketType type : resolvePanelTypes(panel)) {
+            if (buttons.size() >= 5) break;
             Button button = createButton(type.style, "create_ticket:" + type.id, type.label);
             if (button == null) button = Button.primary("create_ticket:" + type.id, type.label);
             if (type.emoji != null && !type.emoji.isEmpty()) {
@@ -1257,6 +1433,21 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             buttons.add(Button.primary("create_ticket", panelButtonLabel));
         }
         return buttons;
+    }
+
+    private List<TicketType> resolvePanelTypes(PanelConfig panel) {
+        List<TicketType> result = new ArrayList<>();
+        if (panel.typeIds.isEmpty()) {
+            result.addAll(ticketTypes.values());
+            return result;
+        }
+        for (String typeId : panel.typeIds) {
+            TicketType type = ticketTypes.get(typeId.toLowerCase().replaceAll("[^a-z0-9_-]", "_"));
+            if (type != null) {
+                result.add(type);
+            }
+        }
+        return result;
     }
 
     private Button createButton(String style, String customId, String label) {
@@ -1278,6 +1469,14 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             default:
                 return null;
         }
+    }
+
+    private TextChannel resolvePanelChannel(Guild guild, PanelConfig panel) {
+        if (panel.channelSpec != null && !panel.channelSpec.isEmpty()) {
+            TextChannel channel = resolveTextChannel(guild, panel.channelSpec);
+            if (channel != null) return channel;
+        }
+        return resolvePanelChannel(guild);
     }
 
     private TextChannel resolvePanelChannel(Guild guild) {
@@ -1314,6 +1513,16 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         }
         return guild.getTextChannelsByName(value, true).stream().findFirst().orElse(null);
     }
+
+    private Role resolveRole(Guild guild, String idOrName) {
+        if (idOrName == null || idOrName.trim().isEmpty()) return null;
+        String value = idOrName.trim();
+        if (value.matches("\\d+")) {
+            Role byId = guild.getRoleById(value);
+            if (byId != null) return byId;
+        }
+        return guild.getRolesByName(value, true).stream().findFirst().orElse(null);
+    }
     
     private void createDiscordTicket(String userId, String minecraftName, String subject) {
         createDiscordTicket(userId, minecraftName, subject, TicketPriority.MEDIUM, defaultTicketType());
@@ -1325,6 +1534,11 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void createDiscordTicket(String userId, String minecraftName, String subject,
                                      TicketPriority priority, TicketType type) {
+        createDiscordTicket(userId, minecraftName, subject, priority, type, null);
+    }
+
+    private void createDiscordTicket(String userId, String minecraftName, String subject,
+                                     TicketPriority priority, TicketType type, List<String> answers) {
         Guild guild = plugin.getDiscordManager().getMainGuild();
         if (guild == null) return;
 
@@ -1359,14 +1573,15 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                                 
                                 // Create Discord channel
                                 createDiscordChannel(guild, member, userId, minecraftName, subject,
-                                    dbTicketId, finalPriority, finalType);
+                                    dbTicketId, finalPriority, finalType, answers);
                             });
                     });
             });
     }
 
     private void createDiscordChannel(Guild guild, Member member, String userId, String minecraftName,
-                                       String subject, int dbTicketId, TicketPriority priority, TicketType type) {
+                                       String subject, int dbTicketId, TicketPriority priority, TicketType type,
+                                       List<String> answers) {
         TicketPriority finalPriority = priority != null ? priority : TicketPriority.MEDIUM;
         TicketType finalType = type != null ? type : defaultTicketType();
 
@@ -1406,6 +1621,9 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         ticket.dbId = dbTicketId;
         ticket.priority = finalPriority;
         ticket.type = finalType;
+        if (answers != null) {
+            ticket.answers.addAll(answers);
+        }
         activeTickets.put(String.valueOf(dbTicketId), ticket);
         channelToTicket.put(ticketChannel.getId(), String.valueOf(dbTicketId));
         userTicketCount.merge(userId, 1, Integer::sum);
@@ -1427,6 +1645,13 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         // Notify support role
         if (supportRole != null) {
             ticketChannel.sendMessage(supportRole.getAsMention() + " - New ticket created! (" + finalPriority.label + ")").queue();
+        }
+        if (finalType.pingRole != null && !finalType.pingRole.isEmpty()
+            && (supportRole == null || !finalType.pingRole.equalsIgnoreCase(supportRole.getName()))) {
+            Role pingRole = resolveRole(guild, finalType.pingRole);
+            if (pingRole != null) {
+                ticketChannel.sendMessage(pingRole.getAsMention() + " - New " + finalType.label + " ticket").queue();
+            }
         }
 
         // Log ticket creation
@@ -1541,7 +1766,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                 String typeId = buttonId.contains(":")
                     ? buttonId.substring(buttonId.indexOf(':') + 1)
                     : null;
-                handleCreateTicket(event, typeId);
+                handleCreateTicket(event, typeId, null);
             } else if (buttonId.equals("close_ticket")) {
                 handleCloseTicket(event);
             } else if (buttonId.equals("claim_ticket")) {
@@ -1551,6 +1776,22 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             }
         }
         
+        @Override
+        public void onStringSelectInteraction(StringSelectInteractionEvent event) {
+            String componentId = event.getComponentId();
+            if (!componentId.startsWith("create_ticket_menu")) return;
+            if (event.getMember() == null || event.getValues().isEmpty()) return;
+            handleCreateTicket(event, event.getValues().get(0), null);
+        }
+
+        @Override
+        public void onModalInteraction(ModalInteractionEvent event) {
+            String modalId = event.getModalId();
+            if (!modalId.startsWith("ticket_questions")) return;
+            if (event.getMember() == null) return;
+            handleModalAnswers(event);
+        }
+
         @Override
         public void onMessageReceived(MessageReceivedEvent event) {
             if (event.getAuthor().isBot()) return;
@@ -1570,7 +1811,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         }
     }
     
-    private void handleCreateTicket(ButtonInteractionEvent event, String typeId) {
+    private void handleCreateTicket(GenericComponentInteractionCreateEvent event, String typeId, List<String> answers) {
         Member member = event.getMember();
         String userId = member.getId();
         final TicketType type = resolveTicketType(typeId);
@@ -1591,6 +1832,11 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             return;
         }
 
+        if (answers == null && !type.questions.isEmpty()) {
+            openQuestionsModal(event, type);
+            return;
+        }
+
         // Check if verified and get Minecraft name
         plugin.getDatabaseManager().getMinecraftName(userId)
             .thenAccept(minecraftName -> {
@@ -1604,13 +1850,89 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                 event.replyEmbeds(EmbedUtils.infoEmbed("Creating Ticket",
                         "Your support ticket is being created...").build())
                     .setEphemeral(true).queue();
-                createDiscordTicket(userId, minecraftName, type.subject, TicketPriority.MEDIUM, type);
+                createDiscordTicket(userId, minecraftName, type.subject, TicketPriority.MEDIUM, type, answers);
             })
             .exceptionally(throwable -> {
                 plugin.getLogger().severe("Error checking verification status: " + throwable.getMessage());
                 event.replyEmbeds(EmbedUtils.errorEmbed("Verification Check Failed",
                         "An error occurred while checking your verification status.").build())
                     .setEphemeral(true).queue();
+                return null;
+            });
+    }
+
+    private void openQuestionsModal(GenericComponentInteractionCreateEvent event, TicketType type) {
+        Modal.Builder modal = Modal.create("ticket_questions:" + type.id, "New " + type.label + " Ticket");
+        int index = 0;
+        for (String question : type.questions) {
+            String placeholder = question.length() > 100 ? question.substring(0, 97) + "..." : question;
+            TextInput input = TextInput
+                .create("q" + index, String.valueOf(index + 1) + ". " + shortLabel(question),
+                    TextInputStyle.PARAGRAPH)
+                .setPlaceholder(placeholder)
+                .setRequired(false)
+                .setMaxLength(500)
+                .build();
+            modal.addActionRow(input);
+            index++;
+        }
+        try {
+            event.replyModal(modal.build()).queue();
+        } catch (Exception e) {
+            debug("Could not open the ticket questions modal: " + e.getMessage());
+        }
+    }
+
+    private String shortLabel(String question) {
+        if (question.length() <= 42) return question;
+        return question.substring(0, 39) + "...";
+    }
+
+    private void handleModalAnswers(ModalInteractionEvent event) {
+        String modalId = event.getModalId();
+        String typeId = modalId.contains(":") ? modalId.substring(modalId.indexOf(':') + 1) : null;
+        final TicketType type = resolveTicketType(typeId);
+        Member member = event.getMember();
+        if (member == null) return;
+        String userId = member.getId();
+
+        List<String> answers = new ArrayList<>();
+        for (ModalMapping mapping : event.getValues()) {
+            if (mapping.getId() != null && mapping.getId().startsWith("q")) {
+                answers.add(mapping.getAsString());
+            }
+        }
+
+        event.deferReply(true).queue();
+
+        int currentTickets = userTicketCount.getOrDefault(userId, 0);
+        if (currentTickets >= maxOpenTickets) {
+            event.getHook().sendMessageEmbeds(EmbedUtils.errorEmbed("Limit Reached",
+                    "You have reached the maximum number of open tickets (" + maxOpenTickets + ").").build()).queue();
+            return;
+        }
+        String limitError = checkTicketLimits(userId, type.id);
+        if (limitError != null) {
+            event.getHook().sendMessageEmbeds(EmbedUtils.errorEmbed("Limit Reached",
+                    formatLimitError(limitError)).build()).queue();
+            return;
+        }
+
+        plugin.getDatabaseManager().getMinecraftName(userId)
+            .thenAccept(minecraftName -> {
+                if (minecraftName == null) {
+                    event.getHook().sendMessageEmbeds(EmbedUtils.warningEmbed("Verification Required",
+                            "You must verify your Minecraft account first. Use `/verify` in-game.").build()).queue();
+                    return;
+                }
+                event.getHook().sendMessageEmbeds(EmbedUtils.infoEmbed("Creating Ticket",
+                        "Your support ticket is being created...").build()).queue();
+                createDiscordTicket(userId, minecraftName, type.subject, TicketPriority.MEDIUM, type, answers);
+            })
+            .exceptionally(throwable -> {
+                plugin.getLogger().severe("Error checking verification status: " + throwable.getMessage());
+                event.getHook().sendMessageEmbeds(EmbedUtils.errorEmbed("Verification Check Failed",
+                        "An error occurred while checking your verification status.").build()).queue();
                 return null;
             });
     }
@@ -1831,7 +2153,10 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         }
 
         Guild guild = plugin.getDiscordManager().getMainGuild();
-        TextChannel transcriptChannel = resolveTextChannel(guild, transcriptChannelName);
+        String targetTranscript = ticket.type != null && ticket.type.transcriptChannel != null
+            && !ticket.type.transcriptChannel.isEmpty()
+            ? ticket.type.transcriptChannel : transcriptChannelName;
+        TextChannel transcriptChannel = resolveTextChannel(guild, targetTranscript);
 
         if (transcriptChannel == null) {
             debug("Transcript channel '" + transcriptChannelName + "' not found - skipping attachment upload");
@@ -1877,11 +2202,13 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void startAutoCloseTask() {
         SchedulerCompat.runTaskTimerAsync(plugin, () -> {
-            long inactiveMillis = inactiveHours * 60 * 60 * 1000L;
             long warningMillis = (long) autoCloseWarningMinutes * 60 * 1000L;
             long currentTime = System.currentTimeMillis();
 
             for (Ticket ticket : activeTickets.values()) {
+                int hours = ticket.type != null && ticket.type.autoCloseHours > 0
+                    ? ticket.type.autoCloseHours : inactiveHours;
+                long inactiveMillis = hours * 60 * 60 * 1000L;
                 long inactiveFor = currentTime - ticket.lastActivity;
                 if (inactiveFor > inactiveMillis) {
                     final String tid = ticket.id;
@@ -1891,7 +2218,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                     && !ticket.autoCloseWarningSent
                     && inactiveFor > (inactiveMillis - warningMillis)) {
                     ticket.autoCloseWarningSent = true;
-                    sendAutoCloseWarning(ticket, inactiveHours, autoCloseWarningMinutes);
+                    sendAutoCloseWarning(ticket, hours, autoCloseWarningMinutes);
                 }
             }
         }, 20L * 60 * 30, 20L * 60 * 30); // Check every 30 minutes
@@ -1993,6 +2320,15 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         data = YamlConfiguration.loadConfiguration(dataFile);
         panelChannelId = data.getString("panel.channel-id", "");
         panelMessageId = data.getString("panel.message-id", "");
+        panelChannelIds.clear();
+        panelMessageIds.clear();
+        ConfigurationSection panelSection = data.getConfigurationSection("panels");
+        if (panelSection != null) {
+            for (String id : panelSection.getKeys(false)) {
+                panelChannelIds.put(id, panelSection.getString(id + ".channel-id", ""));
+                panelMessageIds.put(id, panelSection.getString(id + ".message-id", ""));
+            }
+        }
     }
 
     private void saveData() {
@@ -2029,6 +2365,13 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         }
         data.set("panel.channel-id", panelChannelId);
         data.set("panel.message-id", panelMessageId);
+        data.set("panels", null);
+        for (Map.Entry<String, String> entry : panelMessageIds.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isEmpty()) continue;
+            String base = "panels." + entry.getKey() + ".";
+            data.set(base + "channel-id", panelChannelIds.getOrDefault(entry.getKey(), ""));
+            data.set(base + "message-id", entry.getValue());
+        }
         saveData();
     }
 
@@ -2163,6 +2506,18 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             embed.addField("Ticket Information", info.toString(), false);
         }
 
+        if (!ticket.answers.isEmpty() && ticket.type != null) {
+            StringBuilder form = new StringBuilder();
+            List<String> questions = ticket.type.questions;
+            for (int i = 0; i < ticket.answers.size(); i++) {
+                String question = i < questions.size() ? questions.get(i) : "Question " + (i + 1);
+                if (form.length() > 0) form.append("\n\n");
+                form.append("**").append(question).append("**\n").append(ticket.answers.get(i));
+            }
+            String value = form.toString();
+            if (value.length() > 1024) value = value.substring(0, 1021) + "...";
+            embed.addField("Form Answers", value, false);
+        }
         plugin.getEmbedUtils().applyStyle("ticket-welcome", embed);
         return embed;
     }
@@ -2278,6 +2633,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         TicketPriority priority;
         TicketType type;
         boolean autoCloseWarningSent;
+        final List<String> answers;
         final List<TicketMessage> messages;
         int dbId; // Database ticket ID
 
@@ -2297,6 +2653,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             this.priority = TicketPriority.MEDIUM;
             this.type = null;
             this.autoCloseWarningSent = false;
+            this.answers = new ArrayList<>();
             this.messages = new ArrayList<>();
             this.dbId = -1;
         }
@@ -2394,33 +2751,57 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
      */
     public static class TicketType {
         final String id;
-        final String label;
-        final String emoji;
-        final String style;
-        final String category;
-        final String supportRole;
-        final String channelNameFormat;
-        final String subject;
-        final String welcomeTitle;
-        final String welcomeDescription;
-        final String color;
-        final String guiMaterial;
+        String label;
+        String emoji;
+        String style;
+        String category;
+        String supportRole;
+        String channelNameFormat;
+        String subject;
+        String welcomeTitle;
+        String welcomeDescription;
+        String color;
+        String guiMaterial;
+        String optionDescription;
+        String pingRole;
+        String transcriptChannel;
+        int autoCloseHours;
+        final List<String> questions;
 
-        TicketType(String id, String label, String emoji, String style, String category,
-                   String supportRole, String channelNameFormat, String subject,
-                   String welcomeTitle, String welcomeDescription, String color, String guiMaterial) {
+        TicketType(String id, String label) {
             this.id = id;
             this.label = label;
-            this.emoji = emoji;
-            this.style = style;
-            this.category = category;
-            this.supportRole = supportRole;
-            this.channelNameFormat = channelNameFormat;
-            this.subject = subject;
-            this.welcomeTitle = welcomeTitle;
-            this.welcomeDescription = welcomeDescription;
-            this.color = color;
-            this.guiMaterial = guiMaterial;
+            this.emoji = "";
+            this.style = "PRIMARY";
+            this.category = "";
+            this.supportRole = "";
+            this.channelNameFormat = "";
+            this.subject = "";
+            this.color = null;
+            this.guiMaterial = "PAPER";
+            this.optionDescription = "";
+            this.pingRole = "";
+            this.transcriptChannel = "";
+            this.autoCloseHours = -1;
+            this.questions = new ArrayList<>();
+        }
+    }
+
+    private static class PanelConfig {
+        final String id;
+        String channelSpec = "";
+        String mode = "buttons";
+        String title = "";
+        String description = "";
+        String color = "";
+        String image = "";
+        String thumbnail = "";
+        String footer = "";
+        String selectPlaceholder = "";
+        final List<String> typeIds = new ArrayList<>();
+
+        PanelConfig(String id) {
+            this.id = id;
         }
     }
 }

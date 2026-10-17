@@ -155,6 +155,10 @@ features:
       button-label: "Create Ticket"
       button-emoji: "🎫"
       button-style: "PRIMARY"
+      # Panel layout: buttons (one per type, max 5) or dropdown (select menu, up to 25 types)
+      mode: buttons
+      # Text shown in the dropdown until a type is picked
+      select-placeholder: "Select a ticket type"
 
     # Default welcome embed posted inside each ticket channel
     # Placeholders: %id%, %user%, %minecraft%, %subject%, %priority%, %priority_emoji%,
@@ -222,6 +226,18 @@ features:
     #      A support team member will help you shortly.
     #    # Optional: overrides the welcome embed color
     #    color: ""
+    #    # Optional description shown under the option in a dropdown panel
+    #    description: "General help and questions"
+    #    # Extra role pinged when this type is used (name or ID)
+    #    ping-role: ""
+    #    # Transcript channel override for this type (name or ID)
+    #    transcript-channel: ""
+    #    # Auto-close override in hours (0 = use auto-close-hours above)
+    #    auto-close-hours: 0
+    #    # Up to 5 questions asked in a popup before the ticket is created
+    #    questions:
+    #      - "What do you need help with?"
+    #      - "Which version are you on?"
     #  report:
     #    label: "Report a Player"
     #    emoji: "🚨"
@@ -235,6 +251,25 @@ features:
     #      Thanks for the report, %user%.
     #      **Subject:** %subject%
     #    color: "#E53935"
+
+    # Optional multiple panels. Each panel posts its own message in its own
+    # channel and can show a subset of the types above. When absent, a single
+    # "default" panel using the panel section above is used.
+    #panels:
+    #  support:
+    #    channel: "ticket-logs"
+    #    mode: dropdown
+    #    description: "Pick a category below to open a ticket."
+    #    select-placeholder: "Select a ticket type"
+    #    types:
+    #      - support
+    #      - report
+    #  reports:
+    #    channel: "report-logs"
+    #    mode: buttons
+    #    title: "Player Reports"
+    #    types:
+    #      - report
 
   moderation:
     enabled: true

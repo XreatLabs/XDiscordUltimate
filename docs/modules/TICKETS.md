@@ -26,11 +26,30 @@ Keys under `features.tickets`:
 | `channel-name-format` | `"ticket-%id%"` | Ticket channel name format. |
 | `channel-topic-format` | topic template | Supports `%id%`, `%user%`, `%minecraft%`, `%subject%`, `%priority%`, `%type%`. |
 | `panel.*` | see config.yml | Panel title, description, color, footer, image, thumbnail, and button options. |
+| `panel.mode` | `buttons` | `buttons` (one per type, max 5) or `dropdown` (select menu, up to 25 types). |
+| `panel.select-placeholder` | `"Select a ticket type"` | Placeholder for dropdown panels. |
 | `welcome.*` | see config.yml | Embed posted inside a new ticket. |
 | `buttons.*` | see config.yml | Labels and emojis for the claim and close buttons. |
 | `priorities.LOW/MEDIUM/HIGH/URGENT` | see config.yml | Label, emoji, and color per priority. |
 | `max-open-tickets-per-type` | unset | Optional per-type limit on top of `max-open-tickets`. |
-| `types` | unset | Optional ticket types, one panel button each (max 5). |
+| `types` | unset | Optional ticket types, one panel entry each. |
+| `panels` | unset | Optional multiple panels; see below. |
+
+### Ticket types
+
+Each entry under `types` takes the same base keys as before (`label`, `emoji`, `style`, `subject`, `category`, `support-role`, `channel-name-format`, `gui-material`, `welcome-title`, `welcome-description`, `color`) plus:
+
+| Key | Description |
+| --- | --- |
+| `description` | Option text shown under the type in a dropdown panel. |
+| `ping-role` | Extra role pinged when a ticket of this type opens (name or ID). |
+| `transcript-channel` | Transcript upload channel override for this type (name or ID). |
+| `auto-close-hours` | Auto-close override in hours; `0` uses the global value. |
+| `questions` | Up to 5 questions asked in a popup before the ticket is created; answers are added to the welcome embed. |
+
+### Multiple panels
+
+When `panels` is set, each entry posts its own panel message. Supported keys: `channel`, `mode`, `title`, `description`, `color`, `image`, `thumbnail`, `footer`, `select-placeholder`, and `types` (a subset of the configured type ids). Unset keys fall back to the single `panel` section. Panel message ids are stored per panel in `tickets.yml`.
 
 ## Commands
 
@@ -42,10 +61,11 @@ Discord:
 - `/ticket close [reason]`, `/ticket info`, `/ticket priority <level>`
 - `/ticket adduser <user>`, `/ticket removeuser <user>`
 - `/ticket edit title|description|priority|addbutton|removebutton`
+- `/ticket panel [id]` - reposts one panel from `panels` or all of them. Requires Manage Server.
 
 ## Notes
 
-- Open tickets are persisted to `tickets.yml`; the panel message is edited in place after restarts.
+- Open tickets are persisted to `tickets.yml`; panel messages are edited in place after restarts.
 - Override embed styling with `messages.embeds.ticket-panel`, `ticket-welcome`, and `ticket-closed`.
-- `types` must define one to five entries; without it the panel shows a single default button.
+- Without `types` the panel shows a single default button; button panels show at most 5 types, dropdown panels at most 25.
 - Transcripts are written to the plugin's `transcripts` folder and uploaded when `save-transcript` is true.
