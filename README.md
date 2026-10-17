@@ -8,6 +8,16 @@ The most comprehensive Discord integration plugin for Minecraft servers. Feature
 ![Discord](https://img.shields.io/badge/discord-JDA_5.0-7289da)
 ![License](https://img.shields.io/badge/license-MIT-purple)
 
+[![Spigot](https://img.shields.io/spiget/version/127923?label=spigot&color=orange)](https://www.spigotmc.org/resources/xdiscordultimate.127923/)
+[![Modrinth](https://img.shields.io/modrinth/v/xdiscordultimate?label=modrinth&color=1bd96a)](https://modrinth.com/plugin/xdiscordultimate)
+[![bStats](https://img.shields.io/bstats/servers/34781)](https://bstats.org/plugin/bukkit/XDiscordUltimate/34781)
+
+## Download
+
+- [SpigotMC](https://www.spigotmc.org/resources/xdiscordultimate.127923/)
+- [Modrinth](https://modrinth.com/plugin/xdiscordultimate)
+- [GitHub Releases](https://github.com/XreatLabs/XDiscordUltimate/releases)
+
 ## What's New in 1.3.0
 
 - **Ticket upgrades** - per-type open limits, creation cooldown, close reasons, 1-5 star feedback DMs, ticket participants, and HTML transcripts.
@@ -21,11 +31,11 @@ The most comprehensive Discord integration plugin for Minecraft servers. Feature
 
 ## What's New in 1.2.0
 
-- **`/unlink` command** — players can unlink their Discord account; admins can unlink anyone via `/xdiscord unlink <player>` (removes Discord role, LuckPerms group, and DB link).
-- **Hardened verification codes** — `SecureRandom` generation, configurable failed-attempt cooldown + max-attempts lockout, and consistent code expiry (the `code-expiry-minutes` config is now honored exactly).
-- **Fixed config/code default mismatches** — `one-time-only`, `kick-after-minutes`, and `verify-cooldown-seconds` now align with `config.yml`.
+- **`/unlink` command** - players can unlink their Discord account; admins can unlink anyone via `/xdiscord unlink <player>` (removes Discord role, LuckPerms group, and DB link).
+- **Hardened verification codes** - `SecureRandom` generation, configurable failed-attempt cooldown + max-attempts lockout, and consistent code expiry (the `code-expiry-minutes` config is now honored exactly).
+- **Fixed config/code default mismatches** - `one-time-only`, `kick-after-minutes`, and `verify-cooldown-seconds` now align with `config.yml`.
 - **Fixed a `ConcurrentModificationException`** in the message/localization system that could throw on a player's first localized message.
-- **Discord nickname re-sync** — linked members' stored Discord name stays fresh when they change their nickname.
+- **Discord nickname re-sync** - linked members' stored Discord name stays fresh when they change their nickname.
 
 ## Features
 
