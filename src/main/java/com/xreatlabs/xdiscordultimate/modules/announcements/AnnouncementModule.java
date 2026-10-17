@@ -3,6 +3,7 @@ package com.xreatlabs.xdiscordultimate.modules.announcements;
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
 import com.xreatlabs.xdiscordultimate.utils.ColorUtils;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
@@ -25,7 +26,6 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.awt.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.Collections;
@@ -210,12 +210,13 @@ public class AnnouncementModule extends Module implements Listener {
     private EmbedBuilder buildAnnouncementsListEmbed() {
         EmbedBuilder embed = new EmbedBuilder()
             .setTitle("📢 Scheduled Announcements")
-            .setColor(Color.YELLOW)
+            .setColor(EmbedUtils.PREMIUM)
             .setFooter("XDiscordUltimate • " + announcements.size() + " announcement(s) configured", null)
             .setTimestamp(Instant.now());
 
         if (announcements.isEmpty()) {
             embed.setDescription("No scheduled announcements configured.\nUse `/announce test` to test the module.");
+            plugin.getEmbedUtils().applyStyle("announcement", embed);
             return embed;
         }
 
@@ -225,7 +226,7 @@ public class AnnouncementModule extends Module implements Listener {
                 + (announcement.sendToDiscord ? "Discord" : "");
             if (destinations.isEmpty()) destinations = "None";
 
-            String fieldName = status + " " + announcement.id + " — "
+            String fieldName = status + " " + announcement.id + " - "
                 + (announcement.title.isEmpty() ? "(no title)" : announcement.title);
             String fieldValue = "Interval: `" + announcement.interval + "s` • "
                 + "Targets: `" + destinations + "` • "
@@ -524,21 +525,15 @@ public class AnnouncementModule extends Module implements Listener {
         TextChannel channel = getAnnouncementChannel();
         if (channel == null) return;
 
-        Color embedColor;
-        try {
-            embedColor = Color.decode(announcement.discordColor);
-        } catch (NumberFormatException e) {
-            embedColor = Color.YELLOW;
-        }
-
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(embedColor)
+            .setColor(plugin.getEmbedUtils().parseColor(announcement.discordColor))
             .setTitle("📢 " + (announcement.title.isEmpty() ? "Server Announcement" : announcement.title))
             .setDescription(String.join("\n", announcement.messages)
                 .replaceAll("&[0-9a-fk-or]", "")) // Remove color codes
             .setTimestamp(Instant.now())
             .setFooter("Server Announcement", plugin.getServer().getServerIcon() != null ?
                 "attachment://server-icon.png" : null);
+        plugin.getEmbedUtils().applyStyle("announcement", embed);
 
         // Use a LinkedHashSet to store unique URLs while preserving insertion order.
         Set<String> urls = new LinkedHashSet<>();

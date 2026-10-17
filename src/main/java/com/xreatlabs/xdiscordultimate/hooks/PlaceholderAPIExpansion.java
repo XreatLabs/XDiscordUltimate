@@ -1,6 +1,7 @@
 package com.xreatlabs.xdiscordultimate.hooks;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
+import com.xreatlabs.xdiscordultimate.modules.stats.PlayerStatsModule;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
@@ -61,7 +62,12 @@ public class PlaceholderAPIExpansion extends PlaceholderExpansion {
 
         UUID uuid = player.getUniqueId();
 
-        switch (params.toLowerCase()) {
+        String lower = params.toLowerCase();
+        if (lower.startsWith("stats_")) {
+            return getStatPlaceholder(player, lower.substring("stats_".length()));
+        }
+
+        switch (lower) {
             case "verified":
                 return isVerified(uuid) ? "true" : "false";
             case "linked":
@@ -81,6 +87,36 @@ public class PlaceholderAPIExpansion extends PlaceholderExpansion {
             default:
                 return null;
         }
+    }
+
+    private String getStatPlaceholder(OfflinePlayer player, String statId) {
+        PlayerStatsModule statsModule = plugin.getModuleManager().getModule(PlayerStatsModule.class);
+        if (statsModule == null || !statsModule.isEnabled()) {
+            return "";
+        }
+
+        String lower = statId.toLowerCase(java.util.Locale.ROOT);
+
+        if (lower.startsWith("top_")) {
+            String rest = lower.substring("top_".length());
+            boolean nameOnly = rest.endsWith("_name");
+            if (nameOnly) {
+                rest = rest.substring(0, rest.length() - "_name".length());
+            }
+            int split = rest.lastIndexOf('_');
+            if (split <= 0) return "";
+            String stat = rest.substring(0, split).replace('_', '-');
+            int position;
+            try {
+                position = Integer.parseInt(rest.substring(split + 1));
+            } catch (NumberFormatException e) {
+                return "";
+            }
+            return statsModule.getTopPlaceholder(stat, position, nameOnly);
+        }
+
+        String normalized = lower.replace('_', '-');
+        return statsModule.getStatPlaceholder(player, normalized);
     }
 
     private boolean isVerified(UUID uuid) {

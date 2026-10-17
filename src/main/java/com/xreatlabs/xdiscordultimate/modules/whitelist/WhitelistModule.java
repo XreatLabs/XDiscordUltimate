@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class WhitelistModule extends Module implements CommandExecutor {
 
@@ -184,14 +185,14 @@ public class WhitelistModule extends Module implements CommandExecutor {
         plugin.getDatabaseManager().getDiscordId(player.getUniqueId())
             .thenAccept(discordId -> {
                 final String requesterDiscordId = discordId;
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                SchedulerCompat.runTask(plugin, () -> {
                     submitRequest(requesterDiscordId, requesterName, username);
                     player.sendMessage(plugin.getMessageManager().colorize(
                         "&aWhitelist request submitted for &f" + username + "&a. Check Discord for updates."));
                 });
             })
             .exceptionally(t -> {
-                Bukkit.getScheduler().runTask(plugin, () ->
+                SchedulerCompat.runTask(plugin, () ->
                     plugin.getMessageManager().sendError(player, "errors.whitelist-submission-failed"));
                 warning("Failed to resolve Discord id for " + requesterName + ": " + t.getMessage());
                 return null;
@@ -347,7 +348,7 @@ public class WhitelistModule extends Module implements CommandExecutor {
         request.handledBy = event.getMember().getEffectiveName();
 
         if (autoWhitelist) {
-            Bukkit.getScheduler().runTask(plugin, () ->
+            SchedulerCompat.runTask(plugin, () ->
                 Bukkit.getServer().dispatchCommand(
                     Bukkit.getConsoleSender(), "whitelist add " + request.username));
         }

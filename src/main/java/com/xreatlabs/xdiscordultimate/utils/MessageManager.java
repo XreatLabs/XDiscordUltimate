@@ -390,6 +390,22 @@ public class MessageManager {
         sender.sendMessage(prefix + colorize(message));
     }
 
+    /**
+     * Send a message with a clickable link. Falls back to plain text on failure.
+     */
+    public void sendClickableLink(Player player, String message, String url) {
+        if (player == null || message == null || url == null) return;
+        try {
+            net.md_5.bungee.api.chat.TextComponent component =
+                new net.md_5.bungee.api.chat.TextComponent(prefix + colorize(message));
+            component.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                net.md_5.bungee.api.chat.ClickEvent.Action.OPEN_URL, url));
+            player.spigot().sendMessage(component);
+        } catch (Throwable e) {
+            player.sendMessage(prefix + colorize(message) + " " + url);
+        }
+    }
+
     public void sendMessageNoPrefix(CommandSender sender, String path) {
         sender.sendMessage(getMessage(path));
     }

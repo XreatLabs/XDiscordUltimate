@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.modules.voicechannel;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
@@ -23,6 +24,7 @@ import java.util.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class VoiceChannelModule extends Module {
 
@@ -83,7 +85,7 @@ public class VoiceChannelModule extends Module {
             startUpdateTask();
             
             // Initial update
-            Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, this::updateStatusChannel, 60L);
+            SchedulerCompat.runTaskLaterAsync(plugin, this::updateStatusChannel, 60L);
             
             info("Voice channel module connected to Discord");
         }
@@ -128,8 +130,8 @@ public class VoiceChannelModule extends Module {
 
     private EmbedBuilder buildSetupEmbed() {
         return new EmbedBuilder()
-            .setTitle("🎧 Voice Channels — Setup Guide")
-            .setColor(Color.CYAN)
+            .setTitle("🎧 Voice Channels - Setup Guide")
+            .setColor(EmbedUtils.INFO)
             .setDescription("Follow these steps to configure the Voice Channels module.")
             .addField("1. Enable Developer Mode",
                 "Discord → User Settings → Advanced → toggle **Developer Mode** on.", false)
@@ -148,8 +150,8 @@ public class VoiceChannelModule extends Module {
 
     private EmbedBuilder buildHelpEmbed() {
         return new EmbedBuilder()
-            .setTitle("🎧 Voice Channels — Help")
-            .setColor(Color.CYAN)
+            .setTitle("🎧 Voice Channels - Help")
+            .setColor(EmbedUtils.INFO)
             .addField("Status Channel",
                 "A voice channel whose **name** updates with the current online player count, "
                     + "e.g. `📊 Players: 7/50`. Controlled by `status-channel-format`.", false)
@@ -160,10 +162,10 @@ public class VoiceChannelModule extends Module {
                 "Auto-created voice channels (named `dynamic-channel-prefix #N`). "
                     + "Empty rooms are auto-deleted to keep the channel list clean.", false)
             .addField("Commands",
-                "`/voicechannels status` — current counts\n"
-                    + "`/voicechannels list` — active dynamic rooms\n"
-                    + "`/voicechannels setup` — this guide\n"
-                    + "`/voicechannels help` — this help", false)
+                "`/voicechannels status` - current counts\n"
+                    + "`/voicechannels list` - active dynamic rooms\n"
+                    + "`/voicechannels setup` - this guide\n"
+                    + "`/voicechannels help` - this help", false)
             .setFooter("XDiscordUltimate Voice Channels", null);
     }
 
@@ -188,7 +190,7 @@ public class VoiceChannelModule extends Module {
 
         return new EmbedBuilder()
             .setTitle("Voice Channel Status")
-            .setColor(Color.CYAN)
+            .setColor(EmbedUtils.INFO)
             .addField("Server Players", online + "/" + max, true)
             .addField("Status Channel", enableStatusChannel ? "Enabled" : "Disabled", true)
             .addField("Dynamic Channels", enableDynamicChannels ? "Enabled" : "Disabled", true)
@@ -214,14 +216,14 @@ public class VoiceChannelModule extends Module {
         if (description.length() == 0) {
             return new EmbedBuilder()
                 .setTitle("Dynamic Voice Channels")
-                .setColor(Color.CYAN)
+                .setColor(EmbedUtils.INFO)
                 .setDescription("No dynamic voice channels are currently active.")
                 .setFooter("Dynamic channels are created when users join the hub", null);
         }
 
         return new EmbedBuilder()
             .setTitle("Dynamic Voice Channels")
-            .setColor(Color.CYAN)
+            .setColor(EmbedUtils.INFO)
             .setDescription(description.toString())
             .setFooter("Dynamic channels are created when users join the hub", null);
     }
@@ -252,7 +254,7 @@ public class VoiceChannelModule extends Module {
             updateTask.cancel();
         }
 
-        updateTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
+        updateTask = SchedulerCompat.runTaskTimerAsync(plugin,
             this::updateStatusChannel,
             updateInterval * 20L,
             updateInterval * 20L

@@ -19,6 +19,7 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ActivityRolesModule extends Module implements Listener {
 
@@ -66,7 +67,7 @@ public class ActivityRolesModule extends Module implements Listener {
         startSyncTask();
         info("Activity roles connected to Discord");
 
-        Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, this::syncAllPlayers, 100L);
+        SchedulerCompat.runTaskLaterAsync(plugin, this::syncAllPlayers, 100L);
     }
 
     private void loadConfiguration() {
@@ -107,7 +108,7 @@ public class ActivityRolesModule extends Module implements Listener {
             syncTask.cancel();
         }
         
-        syncTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
+        syncTask = SchedulerCompat.runTaskTimerAsync(plugin,
             this::syncAllPlayers,
             syncInterval * 20L,
             syncInterval * 20L
@@ -136,7 +137,7 @@ public class ActivityRolesModule extends Module implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
+        SchedulerCompat.runTaskLaterAsync(plugin, () -> {
             Guild guild = plugin.getDiscordManager().getMainGuild();
             if (guild != null) {
                 syncPlayerRole(event.getPlayer(), guild);
@@ -146,7 +147,7 @@ public class ActivityRolesModule extends Module implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        SchedulerCompat.runTaskAsync(plugin, () -> {
             Guild guild = plugin.getDiscordManager().getMainGuild();
             if (guild != null) {
                 syncPlayerRole(event.getPlayer(), guild);

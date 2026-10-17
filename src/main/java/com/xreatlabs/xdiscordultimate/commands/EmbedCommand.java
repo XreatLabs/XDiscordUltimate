@@ -7,7 +7,6 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 
-import java.awt.Color;
 import java.util.Arrays;
 
 public class EmbedCommand implements CommandExecutor {
@@ -55,18 +54,10 @@ public class EmbedCommand implements CommandExecutor {
 
         final TextChannel targetChannel = channel;
 
-        String colorStr = plugin.getConfig().getString("messages.embed-color", "#5865F2");
-        Color color;
-        try {
-            color = Color.decode(colorStr);
-        } catch (NumberFormatException e) {
-            color = Color.decode("#5865F2");
-        }
-
         EmbedBuilder embed = new EmbedBuilder()
             .setTitle(title)
             .setDescription(description.replace("&nl;", "\n"))
-            .setColor(color)
+            .setColor(plugin.getEmbedUtils().parseColor(plugin.getConfig().getString("messages.embed-color")))
             .setFooter("Sent by " + sender.getName(), null);
 
         targetChannel.sendMessageEmbeds(embed.build()).queue(

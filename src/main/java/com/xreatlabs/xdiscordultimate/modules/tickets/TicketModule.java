@@ -20,6 +20,9 @@ import net.dv8tion.jda.api.interactions.commands.build.SlashCommandData;
 import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
 import java.awt.*;
@@ -31,26 +34,31 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 @DependsOn({"verification"})
-public class TicketModule extends Module {
+public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     public enum TicketPriority {
-        LOW("LOW", new Color(0x4CAF50)),
-        MEDIUM("MEDIUM", new Color(0xFFC107)),
-        HIGH("HIGH", new Color(0xFF9800)),
-        URGENT("URGENT", new Color(0xE53935));
+        LOW("LOW", "🟢", new Color(0x4CAF50)),
+        MEDIUM("MEDIUM", "🟡", new Color(0xFFC107)),
+        HIGH("HIGH", "🟠", new Color(0xFF9800)),
+        URGENT("URGENT", "🔴", new Color(0xE53935));
 
-        public final String label;
-        public final Color color;
+        // Configurable display values
+        public String label;
+        public String emoji;
+        public Color color;
 
-        TicketPriority(String label, Color color) {
+        TicketPriority(String label, String emoji, Color color) {
             this.label = label;
+            this.emoji = emoji;
             this.color = color;
         }
 
@@ -77,6 +85,55 @@ public class TicketModule extends Module {
     private int inactiveHours;
     private boolean autoCloseWarningEnabled;
     private int autoCloseWarningMinutes;
+    private boolean playerCanClose;
+    private boolean saveTranscript;
+    private int closeDeleteDelaySeconds;
+    private String channelNameFormat;
+    private String channelTopicFormat;
+
+    // Panel customization
+    private String panelTitle;
+    private String panelDescription;
+    private String panelColorHex;
+    private String panelFooter;
+    private String panelImage;
+    private String panelThumbnail;
+    private String panelButtonLabel;
+    private String panelButtonEmoji;
+    private String panelButtonStyle;
+
+    // Welcome embed customization
+    private String welcomeTitle;
+    private String welcomeDescription;
+    private String welcomeColorHex;
+    private String welcomeFooter;
+    private String welcomeThumbnail;
+    private boolean welcomeShowInfoField;
+
+    // Ticket action buttons
+    private String closeButtonLabel;
+    private String closeButtonEmoji;
+    private String claimButtonLabel;
+    private String claimButtonEmoji;
+
+    // Creation limits, feedback and transcripts
+    private int creationCooldownSeconds;
+    private final Map<String, Integer> maxOpenPerType = new HashMap<>();
+    private boolean feedbackEnabled;
+    private String transcriptFormat;
+    private final Map<String, Long> creationCooldowns = new ConcurrentHashMap<>();
+
+    // Ticket types (ordered, first one is the default)
+    private final Map<String, TicketType> ticketTypes = new LinkedHashMap<>();
+
+    // Panel persistence (tickets.yml)
+    private File dataFile;
+    private FileConfiguration data;
+    private String panelChannelId = "";
+    private String panelMessageId = "";
+
+    // GUI state
+    private final Map<java.util.UUID, List<TicketType>> openGuis = new ConcurrentHashMap<>();
 
     // Active tickets
     private final Map<String, Ticket> activeTickets = new ConcurrentHashMap<>();
@@ -100,7 +157,34 @@ public class TicketModule extends Module {
     @Override
     protected void onEnable() {
         loadConfiguration();
+        backupTicketData();
+        loadData();
+        Bukkit.getPluginManager().registerEvents(this, plugin);
         info("Ticket module enabled - waiting for Discord...");
+    }
+
+    private void backupTicketData() {
+        File source = new File(plugin.getDataFolder(), "tickets.yml");
+        if (!source.exists()) return;
+        try {
+            File backupDir = new File(plugin.getDataFolder(), "backups");
+            if (!backupDir.exists() && !backupDir.mkdirs()) return;
+            String stamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            File backup = new File(backupDir, "tickets-" + stamp + ".yml");
+            java.nio.file.Files.copy(source.toPath(), backup.toPath());
+
+            File[] existing = backupDir.listFiles((dir, name) -> name.startsWith("tickets-") && name.endsWith(".yml"));
+            if (existing != null && existing.length > 5) {
+                java.util.Arrays.sort(existing, java.util.Comparator.comparingLong(File::lastModified));
+                for (int i = 0; i < existing.length - 5; i++) {
+                    //noinspection ResultOfMethodCallIgnored
+                    existing[i].delete();
+                }
+            }
+        } catch (Exception e) {
+            warning("Could not back up tickets.yml: " + e.getMessage());
+        }
     }
     
     @Override
@@ -109,8 +193,11 @@ public class TicketModule extends Module {
         if (plugin.getDiscordManager() != null && plugin.getDiscordManager().isReady()) {
             listener = new TicketListener();
             plugin.getDiscordManager().getJDA().addEventListener(listener);
-            
-            // Create ticket panel if needed
+
+            // Restore tickets that survived a restart
+            restoreActiveTickets();
+
+            // Create or update the ticket panel
             createTicketPanel();
             
             // Start auto-close task
@@ -122,6 +209,14 @@ public class TicketModule extends Module {
     }
 
     @Override
+    public void reloadConfig() {
+        loadConfiguration();
+        if (plugin.getDiscordManager() != null && plugin.getDiscordManager().isReady()) {
+            createTicketPanel();
+        }
+    }
+
+    @Override
     public List<SlashCommandData> getSlashCommands() {
         return Collections.singletonList(
             Commands.slash("ticket", "Support ticket management")
@@ -129,7 +224,12 @@ public class TicketModule extends Module {
                     new SubcommandData("create", "Create a new support ticket")
                         .addOption(OptionType.STRING, "subject", "Ticket subject", false)
                         .addOption(OptionType.STRING, "priority", "Priority: LOW, MEDIUM, HIGH, URGENT", false),
-                    new SubcommandData("close", "Close the current ticket channel"),
+                    new SubcommandData("close", "Close the current ticket channel")
+                        .addOption(OptionType.STRING, "reason", "Reason for closing", false),
+                    new SubcommandData("adduser", "Add a member to the current ticket")
+                        .addOption(OptionType.USER, "user", "Member to add", true),
+                    new SubcommandData("removeuser", "Remove a member from the current ticket")
+                        .addOption(OptionType.USER, "user", "Member to remove", true),
                     new SubcommandData("info", "Show your open tickets and active ticket count"),
                     new SubcommandData("priority", "Change the priority of the current ticket")
                         .addOption(OptionType.STRING, "level", "New priority: LOW, MEDIUM, HIGH, URGENT", true)
@@ -177,6 +277,16 @@ public class TicketModule extends Module {
 
         if ("close".equals(subcommand)) {
             handleSlashCloseTicket(event, member);
+            return true;
+        }
+
+        if ("adduser".equals(subcommand)) {
+            handleSlashParticipant(event, member, true);
+            return true;
+        }
+
+        if ("removeuser".equals(subcommand)) {
+            handleSlashParticipant(event, member, false);
             return true;
         }
 
@@ -241,6 +351,7 @@ public class TicketModule extends Module {
         info("Ticket #" + ticket.id + " title changed from '" + oldTitle + "' to '" + newTitle
             + "' by " + member.getEffectiveName());
         logTicketAction(ticket.id, "title-edited", member.getEffectiveName());
+        saveActiveTickets();
     }
 
     private void handleEditDescription(SlashCommandInteractionEvent event, Member member, Ticket ticket) {
@@ -282,6 +393,7 @@ public class TicketModule extends Module {
         info("Ticket #" + ticket.id + " priority changed from " + oldPriority.label
             + " to " + newPriority.label + " by " + member.getEffectiveName());
         logTicketAction(ticket.id, "priority-edited", member.getEffectiveName());
+        saveActiveTickets();
     }
 
     private void handleEditAddButton(SlashCommandInteractionEvent event, Member member, Ticket ticket) {
@@ -295,7 +407,7 @@ public class TicketModule extends Module {
                 .setEphemeral(true).queue();
             return;
         }
-        // Reject duplicate labels so removebutton stays unambiguous
+        // Reject duplicate labels
         if (ticket.welcomeButtons.stream().anyMatch(b -> label.equals(b.getLabel()))) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Duplicate Button",
                     "A button with that label already exists.").build())
@@ -346,7 +458,7 @@ public class TicketModule extends Module {
             return;
         }
 
-        // Discord caps a single action row at 5 buttons
+        // Discord allows at most 5 buttons in a row
         if (ticket.welcomeButtons.size() >= 5) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Button Limit Reached",
                     "A ticket can have at most 5 buttons. Remove one first.").build())
@@ -389,7 +501,6 @@ public class TicketModule extends Module {
             .substring(0, Math.min(100, label.length() + 16));
     }
 
-    // Instance helper used by sanitizeCustomId - returns a stable prefix
     private String ticketSafeId() {
         return String.valueOf(System.currentTimeMillis());
     }
@@ -401,9 +512,19 @@ public class TicketModule extends Module {
         TextChannel channel = guild.getTextChannelById(ticket.channelId);
         if (channel == null) return;
         TicketPriority priority = ticket.priority != null ? ticket.priority : TicketPriority.MEDIUM;
-        String topic = "Support ticket | MC: " + ticket.minecraftName
-            + " | Priority: " + priority.name()
-            + " | Subject: " + ticket.subject;
+        TicketType type = ticket.type != null ? ticket.type : defaultTicketType();
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("%id%", ticket.id);
+        placeholders.put("%type%", type.label);
+        placeholders.put("%minecraft%", ticket.minecraftName);
+        placeholders.put("%user%", "<@" + ticket.userId + ">");
+        placeholders.put("%subject%", ticket.subject);
+        placeholders.put("%priority%", priority.label);
+        String topic = applyPlaceholders(channelTopicFormat, placeholders);
+        if (ticket.claimedBy != null) {
+            topic = topic + " | Claimed by " + ticket.claimedBy;
+        }
+        if (topic.length() > 1024) topic = topic.substring(0, 1024);
         channel.getManager().setTopic(topic).queue(
             success -> debug("Updated channel topic for ticket #" + ticket.id),
             error -> warning("Failed to update topic for ticket #" + ticket.id + ": " + error.getMessage())
@@ -454,8 +575,9 @@ public class TicketModule extends Module {
                 .setEphemeral(true).queue();
             return;
         }
+        String priorityRoleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
         boolean isSupport = member.hasPermission(Permission.MANAGE_CHANNEL)
-            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(supportRoleName));
+            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(priorityRoleName));
         if (!member.getId().equals(ticket.userId) && !isSupport) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may change this ticket's priority.").build())
@@ -465,6 +587,7 @@ public class TicketModule extends Module {
         String levelStr = event.getOption("level").getAsString();
         TicketPriority priority = TicketPriority.fromString(levelStr);
         ticket.priority = priority;
+        saveActiveTickets();
 
         EmbedBuilder reply = EmbedUtils.successEmbed("Priority Updated",
                 "Ticket #" + ticket.id + " priority is now " + priority.label + ".")
@@ -498,7 +621,7 @@ public class TicketModule extends Module {
         String subArgs = trimmed.isEmpty() ? "" : (trimmed.split(" ", 2).length > 1 ? trimmed.split(" ", 2)[1] : "");
 
         if ("close".equals(subcommand)) {
-            handleTextCloseTicket(event, member);
+            handleTextCloseTicket(event, member, subArgs.trim());
             return true;
         }
 
@@ -516,6 +639,11 @@ public class TicketModule extends Module {
         int currentTickets = userTicketCount.getOrDefault(userId, 0);
         if (currentTickets >= maxOpenTickets) {
             event.getMessage().reply("You have reached the maximum number of open tickets (" + maxOpenTickets + ")").queue();
+            return;
+        }
+        String limitError = checkTicketLimits(userId, defaultTicketType().id);
+        if (limitError != null) {
+            event.getMessage().reply(formatLimitError(limitError)).queue();
             return;
         }
 
@@ -536,7 +664,7 @@ public class TicketModule extends Module {
             });
     }
 
-    private void handleTextCloseTicket(MessageReceivedEvent event, Member member) {
+    private void handleTextCloseTicket(MessageReceivedEvent event, Member member, String reason) {
         String channelId = event.getChannel().getId();
         String ticketId = channelToTicket.get(channelId);
 
@@ -551,17 +679,22 @@ public class TicketModule extends Module {
             return;
         }
 
-        boolean canClose = member.getId().equals(ticket.userId) ||
-            member.hasPermission(Permission.MANAGE_CHANNEL) ||
-            member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(supportRoleName));
-
-        if (!canClose) {
+        if (!canMemberClose(member, ticket)) {
             event.getMessage().reply("You don't have permission to close this ticket!").queue();
             return;
         }
 
         event.getMessage().reply("Closing ticket...").queue();
-        closeTicket(ticketId, member.getEffectiveName());
+        closeTicket(ticketId, member.getEffectiveName(), reason.isEmpty() ? null : reason);
+    }
+
+    private boolean canMemberClose(Member member, Ticket ticket) {
+        if (member.hasPermission(Permission.MANAGE_CHANNEL)) return true;
+        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        if (member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(roleName))) {
+            return true;
+        }
+        return playerCanClose && member.getId().equals(ticket.userId);
     }
 
     private void handleSlashCreateTicket(SlashCommandInteractionEvent event, Member member) {
@@ -570,6 +703,13 @@ public class TicketModule extends Module {
         if (currentTickets >= maxOpenTickets) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Limit Reached",
                     "You have reached the maximum number of open tickets (" + maxOpenTickets + ").").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+        String limitError = checkTicketLimits(userId, defaultTicketType().id);
+        if (limitError != null) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Limit Reached",
+                    formatLimitError(limitError)).build())
                 .setEphemeral(true).queue();
             return;
         }
@@ -623,28 +763,124 @@ public class TicketModule extends Module {
             return;
         }
 
-        boolean canClose = member.getId().equals(ticket.userId) ||
-            member.hasPermission(Permission.MANAGE_CHANNEL) ||
-            member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(supportRoleName));
-
-        if (!canClose) {
+        if (!canMemberClose(member, ticket)) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may close this ticket.").build())
                 .setEphemeral(true).queue();
             return;
         }
 
+        String reason = event.getOption("reason") != null
+            ? event.getOption("reason").getAsString().trim()
+            : null;
         event.replyEmbeds(EmbedUtils.infoEmbed("Closing Ticket",
                 "This ticket will be closed shortly.").build()).queue();
-        closeTicket(ticketId, member.getEffectiveName());
+        closeTicket(ticketId, member.getEffectiveName(), reason == null || reason.isEmpty() ? null : reason);
     }
-    
+
+    private void handleSlashParticipant(SlashCommandInteractionEvent event, Member member, boolean add) {
+        Ticket ticket = resolveTicketFromEvent(event);
+        if (ticket == null) return;
+        if (!checkEditPermission(event, member, ticket)) return;
+
+        Member target = event.getOption("user").getAsMember();
+        if (target == null) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Member Not Found",
+                    "That member could not be found in this server.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+        if (target.getId().equals(ticket.userId)) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Invalid Member",
+                    "The ticket creator is already part of this ticket.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+
+        TextChannel channel = event.getGuild().getTextChannelById(ticket.channelId);
+        if (channel == null) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Ticket Not Found",
+                    "This ticket is no longer active.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+
+        if (add) {
+            if (ticket.participants.containsKey(target.getId())) {
+                event.replyEmbeds(EmbedUtils.warningEmbed("Already Added",
+                        target.getAsMention() + " is already part of this ticket.").build())
+                    .setEphemeral(true).queue();
+                return;
+            }
+            ticket.participants.put(target.getId(), target.getEffectiveName());
+            channel.upsertPermissionOverride(target)
+                .setAllowed(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND)
+                .queue();
+            event.replyEmbeds(EmbedUtils.successEmbed("Member Added",
+                    target.getAsMention() + " was added to the ticket.").build()).queue();
+            channel.sendMessage(target.getAsMention() + " was added to this ticket by "
+                + member.getEffectiveName()).queue();
+            logTicketAction(ticket.id, "participant-added", member.getEffectiveName());
+        } else {
+            if (ticket.participants.remove(target.getId()) == null) {
+                event.replyEmbeds(EmbedUtils.errorEmbed("Not A Participant",
+                        target.getAsMention() + " is not part of this ticket.").build())
+                    .setEphemeral(true).queue();
+                return;
+            }
+            channel.upsertPermissionOverride(target)
+                .setDenied(Permission.VIEW_CHANNEL)
+                .queue();
+            event.replyEmbeds(EmbedUtils.successEmbed("Member Removed",
+                    target.getAsMention() + " was removed from the ticket.").build()).queue();
+            logTicketAction(ticket.id, "participant-removed", member.getEffectiveName());
+        }
+        refreshWelcomeMessage(ticket);
+        saveActiveTickets();
+    }
+
+    private String checkTicketLimits(String userId, String typeId) {
+        if (creationCooldownSeconds > 0) {
+            Long last = creationCooldowns.get(userId);
+            if (last != null) {
+                long remaining = (last + creationCooldownSeconds * 1000L) - System.currentTimeMillis();
+                if (remaining > 0) {
+                    return "cooldown:" + ((remaining + 999) / 1000);
+                }
+            }
+        }
+        int perTypeLimit = typeId != null ? maxOpenPerType.getOrDefault(typeId, 0) : 0;
+        if (perTypeLimit > 0) {
+            long count = activeTickets.values().stream()
+                .filter(t -> userId.equals(t.userId))
+                .filter(t -> t.type != null && typeId.equals(t.type.id))
+                .count();
+            if (count >= perTypeLimit) {
+                return "type:" + typeId + ":" + perTypeLimit;
+            }
+        }
+        return null;
+    }
+
+    private String formatLimitError(String limitError) {
+        if (limitError.startsWith("cooldown:")) {
+            return "Please wait " + limitError.substring("cooldown:".length())
+                + " more second(s) before creating another ticket.";
+        }
+        String[] parts = limitError.split(":", 3);
+        String label = resolveTicketType(parts[1]).label;
+        return "You already have the maximum number of open '" + label + "' tickets (" + parts[2] + ").";
+    }
+
     @Override
     protected void onDisable() {
         // Unregister Discord listener
         if (listener != null && plugin.getDiscordManager() != null && plugin.getDiscordManager().isReady()) {
             plugin.getDiscordManager().getJDA().removeEventListener(listener);
         }
+        org.bukkit.event.inventory.InventoryClickEvent.getHandlerList().unregister(this);
+        org.bukkit.event.inventory.InventoryCloseEvent.getHandlerList().unregister(this);
+        openGuis.clear();
         
         // Save active tickets
         saveActiveTickets();
@@ -666,6 +902,60 @@ public class TicketModule extends Module {
             autoCloseWarningEnabled = config.getBoolean("auto-close-warning-enabled", true);
             // Default: warn 1 hour before close
             autoCloseWarningMinutes = config.getInt("auto-close-warning-minutes", 60);
+            playerCanClose = config.getBoolean("player-close", true);
+            saveTranscript = config.getBoolean("save-transcript", true);
+            closeDeleteDelaySeconds = config.getInt("close-delete-delay-seconds", 10);
+            channelNameFormat = config.getString("channel-name-format", "ticket-%id%");
+            channelTopicFormat = config.getString("channel-topic-format",
+                "Support ticket for %user% | MC: %minecraft% | Priority: %priority% | Type: %type%");
+
+            panelTitle = config.getString("panel.title", "Support Tickets");
+            panelDescription = config.getString("panel.description",
+                "Create a ticket for help from staff.\n\n"
+                    + "• Max %max_tickets% open tickets per user\n"
+                    + "• Tickets close after %auto_close_hours% hours of inactivity\n"
+                    + "• Be respectful to support staff");
+            panelColorHex = config.getString("panel.color", "");
+            panelFooter = config.getString("panel.footer", "XDiscordUltimate Tickets");
+            panelImage = config.getString("panel.image", "");
+            panelThumbnail = config.getString("panel.thumbnail", "");
+            panelButtonLabel = config.getString("panel.button-label", "Create Ticket");
+            panelButtonEmoji = config.getString("panel.button-emoji", "🎫");
+            panelButtonStyle = config.getString("panel.button-style", "PRIMARY");
+
+            welcomeTitle = config.getString("welcome.title", "Ticket #%id% - %priority%");
+            welcomeDescription = config.getString("welcome.description",
+                "Welcome %user%!\n\n"
+                    + "**Type:** %type%\n"
+                    + "**Subject:** %subject%\n"
+                    + "**Minecraft:** %minecraft%\n"
+                    + "**Priority:** %priority%\n"
+                    + "%description%\n"
+                    + "A support team member will be with you shortly.\n"
+                    + "Please describe your issue in detail.");
+            welcomeColorHex = config.getString("welcome.color", "");
+            welcomeFooter = config.getString("welcome.footer", "XDiscordUltimate Tickets");
+            welcomeThumbnail = config.getString("welcome.thumbnail", "https://minotar.net/helm/%minecraft%/64.png");
+            welcomeShowInfoField = config.getBoolean("welcome.show-info-field", true);
+
+            closeButtonLabel = config.getString("buttons.close-label", "Close Ticket");
+            closeButtonEmoji = config.getString("buttons.close-emoji", "🔒");
+            claimButtonLabel = config.getString("buttons.claim-label", "Claim Ticket");
+            claimButtonEmoji = config.getString("buttons.claim-emoji", "✋");
+
+            creationCooldownSeconds = config.getInt("creation-cooldown-seconds", 60);
+            feedbackEnabled = config.getBoolean("feedback-enabled", true);
+            transcriptFormat = config.getString("transcript-format", "text");
+            maxOpenPerType.clear();
+            ConfigurationSection perType = config.getConfigurationSection("max-open-tickets-per-type");
+            if (perType != null) {
+                for (String id : perType.getKeys(false)) {
+                    maxOpenPerType.put(id.toLowerCase(), perType.getInt(id, 0));
+                }
+            }
+
+            loadPriorityOverrides(config.getConfigurationSection("priorities"));
+            loadTicketTypes(config.getConfigurationSection("types"));
         } else {
             warning("Config section not found, using defaults");
             ticketCategoryName = "Support Tickets";
@@ -677,11 +967,116 @@ public class TicketModule extends Module {
             inactiveHours = 48;
             autoCloseWarningEnabled = true;
             autoCloseWarningMinutes = 60;
+            playerCanClose = true;
+            saveTranscript = true;
+            closeDeleteDelaySeconds = 10;
+            channelNameFormat = "ticket-%id%";
+            channelTopicFormat = "Support ticket for %user% | MC: %minecraft% | Priority: %priority% | Type: %type%";
+
+            panelTitle = "Support Tickets";
+            panelDescription = "Create a ticket for help from staff.";
+            panelColorHex = "";
+            panelFooter = "XDiscordUltimate Tickets";
+            panelImage = "";
+            panelThumbnail = "";
+            panelButtonLabel = "Create Ticket";
+            panelButtonEmoji = "🎫";
+            panelButtonStyle = "PRIMARY";
+
+            welcomeTitle = "Ticket #%id% - %priority%";
+            welcomeDescription = "Welcome %user%!\n\n**Subject:** %subject%\n**Minecraft:** %minecraft%";
+            welcomeColorHex = "";
+            welcomeFooter = "XDiscordUltimate Tickets";
+            welcomeThumbnail = "https://minotar.net/helm/%minecraft%/64.png";
+            welcomeShowInfoField = true;
+
+            closeButtonLabel = "Close Ticket";
+            closeButtonEmoji = "🔒";
+            claimButtonLabel = "Claim Ticket";
+            claimButtonEmoji = "✋";
+            creationCooldownSeconds = 60;
+            feedbackEnabled = true;
+            transcriptFormat = "text";
+            maxOpenPerType.clear();
+            loadPriorityOverrides(null);
+            loadTicketTypes(null);
         }
 
-        debug("Ticket category: " + ticketCategoryName);
+        debug("Ticket category: " + ticketCategoryName + ", types: " + ticketTypes.keySet());
     }
-    
+
+    private void loadPriorityOverrides(ConfigurationSection section) {
+        // Reset to defaults before applying overrides
+        TicketPriority.LOW.label = "LOW";
+        TicketPriority.LOW.emoji = "🟢";
+        TicketPriority.LOW.color = new Color(0x4CAF50);
+        TicketPriority.MEDIUM.label = "MEDIUM";
+        TicketPriority.MEDIUM.emoji = "🟡";
+        TicketPriority.MEDIUM.color = new Color(0xFFC107);
+        TicketPriority.HIGH.label = "HIGH";
+        TicketPriority.HIGH.emoji = "🟠";
+        TicketPriority.HIGH.color = new Color(0xFF9800);
+        TicketPriority.URGENT.label = "URGENT";
+        TicketPriority.URGENT.emoji = "🔴";
+        TicketPriority.URGENT.color = new Color(0xE53935);
+
+        if (section == null) return;
+        for (TicketPriority priority : TicketPriority.values()) {
+            ConfigurationSection entry = section.getConfigurationSection(priority.name());
+            if (entry == null) continue;
+            priority.label = entry.getString("label", priority.label);
+            priority.emoji = entry.getString("emoji", priority.emoji);
+            priority.color = parseColor(entry.getString("color", ""), priority.color);
+        }
+    }
+
+    private void loadTicketTypes(ConfigurationSection section) {
+        ticketTypes.clear();
+        if (section != null) {
+            for (String id : section.getKeys(false)) {
+                ConfigurationSection entry = section.getConfigurationSection(id);
+                if (entry == null) continue;
+                String safeId = id.toLowerCase().replaceAll("[^a-z0-9_-]", "_");
+                ticketTypes.put(safeId, new TicketType(
+                    safeId,
+                    entry.getString("label", id),
+                    entry.getString("emoji", panelButtonEmoji),
+                    entry.getString("style", panelButtonStyle),
+                    entry.getString("category", ticketCategoryName),
+                    entry.getString("support-role", supportRoleName),
+                    entry.getString("channel-name-format", channelNameFormat),
+                    entry.getString("subject", entry.getString("label", "General Support")),
+                    entry.getString("welcome-title", null),
+                    entry.getString("welcome-description", null),
+                    entry.getString("color", null),
+                    entry.getString("gui-material", "PAPER")
+                ));
+            }
+        }
+        if (ticketTypes.isEmpty()) {
+            ticketTypes.put("default", new TicketType(
+                "default", panelButtonLabel, panelButtonEmoji, panelButtonStyle,
+                ticketCategoryName, supportRoleName, channelNameFormat, "General Support",
+                null, null, null, "PAPER"));
+        }
+    }
+
+    private TicketType defaultTicketType() {
+        return ticketTypes.values().iterator().next();
+    }
+
+    private TicketType resolveTicketType(String id) {
+        if (id != null) {
+            TicketType type = ticketTypes.get(id);
+            if (type != null) return type;
+        }
+        return defaultTicketType();
+    }
+
+    private Color parseColor(String hex, Color fallback) {
+        return plugin.getEmbedUtils().parseColor(hex, fallback);
+    }
+
     /**
      * Create a new ticket
      */
@@ -690,10 +1085,18 @@ public class TicketModule extends Module {
     }
 
     public void createTicket(Player player, String subject, TicketPriority priority) {
+        createTicket(player, subject, priority, (TicketType) null);
+    }
+
+    public void createTicket(Player player, String subject, TicketPriority priority, String typeId) {
+        createTicket(player, subject, priority, resolveTicketType(typeId));
+    }
+
+    public void createTicket(Player player, String subject, TicketPriority priority, TicketType type) {
         plugin.getDatabaseManager().getDiscordId(player.getUniqueId())
             .thenAccept(userId -> {
                 if (userId == null) {
-                    Bukkit.getScheduler().runTask(plugin, () ->
+                    SchedulerCompat.runTask(plugin, () ->
                         plugin.getMessageManager().sendError(player, "errors.discord-not-linked"));
                     return;
                 }
@@ -703,19 +1106,26 @@ public class TicketModule extends Module {
                 if (currentTickets >= maxOpenTickets) {
                     Map<String, String> placeholders = new HashMap<>();
                     placeholders.put("%max%", String.valueOf(maxOpenTickets));
-                    Bukkit.getScheduler().runTask(plugin, () ->
+                    SchedulerCompat.runTask(plugin, () ->
                         plugin.getMessageManager().sendError(player, "errors.max-tickets", placeholders));
+                    return;
+                }
+                TicketType finalType = type != null ? type : defaultTicketType();
+                String limitError = checkTicketLimits(userId, finalType.id);
+                if (limitError != null) {
+                    SchedulerCompat.runTask(plugin, () ->
+                        plugin.getMessageManager().sendRawMessage(player, "&c" + formatLimitError(limitError)));
                     return;
                 }
 
                 // Create ticket in Discord
-                createDiscordTicket(userId, player.getName(), subject, priority);
+                createDiscordTicket(userId, player.getName(), subject, priority, finalType);
 
-                Bukkit.getScheduler().runTask(plugin, () ->
+                SchedulerCompat.runTask(plugin, () ->
                     plugin.getMessageManager().sendSuccess(player, "success.ticket-created"));
             })
             .exceptionally(throwable -> {
-                Bukkit.getScheduler().runTask(plugin, () ->
+                SchedulerCompat.runTask(plugin, () ->
                     plugin.getMessageManager().sendError(player, "verification.verification-failed"));
                 plugin.getLogger().warning("Failed to create ticket for " + player.getName() + ": " + throwable.getMessage());
                 return null;
@@ -725,67 +1135,196 @@ public class TicketModule extends Module {
     private void createTicketPanel() {
         Guild guild = plugin.getDiscordManager().getMainGuild();
         if (guild == null) return;
-        
-        // Try global tickets channel first
-        String channelId = plugin.getConfig().getString("discord.channels.tickets", "");
-        TextChannel panelChannel = null;
-        
-        if (channelId != null && !channelId.isEmpty() && channelId.matches("\\d+")) {
-            panelChannel = plugin.getDiscordManager().getTextChannelById(channelId);
-        }
-        
+
+        TextChannel panelChannel = resolvePanelChannel(guild);
         if (panelChannel == null) {
-            panelChannel = guild.getTextChannelsByName(ticketChannelName, true)
-                .stream().findFirst().orElse(null);
+            warning("Could not find or create the ticket panel channel");
+            return;
         }
-        
-        if (panelChannel == null) {
-            // Create the channel
-            Category category = getOrCreateCategory(guild);
-            panelChannel = guild.createTextChannel(ticketChannelName)
+
+        // Remove the panel from the old channel if it moved
+        if (!panelMessageId.isEmpty() && !panelChannelId.isEmpty()
+            && !panelChannelId.equals(panelChannel.getId())) {
+            TextChannel oldChannel = guild.getTextChannelById(panelChannelId);
+            if (oldChannel != null) {
+                oldChannel.deleteMessageById(panelMessageId).queue(
+                    success -> debug("Removed old ticket panel from #" + oldChannel.getName()),
+                    failure -> debug("Could not remove old ticket panel: " + failure.getMessage()));
+            }
+            panelMessageId = "";
+        }
+
+        final TextChannel target = panelChannel;
+        if (!panelMessageId.isEmpty()) {
+            // Update the existing panel
+            target.retrieveMessageById(panelMessageId).queue(
+                message -> message.editMessageEmbeds(buildPanelEmbed().build())
+                    .setActionRow(buildPanelButtons())
+                    .queue(
+                        success -> debug("Updated existing ticket panel in #" + target.getName()),
+                        failure -> {
+                            warning("Failed to update ticket panel: " + failure.getMessage());
+                            sendNewPanel(target);
+                        }),
+                failure -> sendNewPanel(target));
+        } else {
+            // Remove old panels before posting a fresh one
+            target.getHistory().retrievePast(20).queue(
+                messages -> {
+                    for (Message message : messages) {
+                        if (message.getAuthor().isBot() && hasCreateTicketButton(message)) {
+                            message.delete().queue(success -> {}, failure -> {});
+                        }
+                    }
+                    sendNewPanel(target);
+                },
+                failure -> sendNewPanel(target));
+        }
+    }
+
+    private boolean hasCreateTicketButton(Message message) {
+        try {
+            for (Button button : message.getButtons()) {
+                String id = button.getId();
+                if (id != null && id.startsWith("create_ticket")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void sendNewPanel(TextChannel channel) {
+        channel.sendMessageEmbeds(buildPanelEmbed().build())
+            .setActionRow(buildPanelButtons())
+            .queue(
+                sent -> {
+                    panelChannelId = channel.getId();
+                    panelMessageId = sent.getId();
+                    saveData();
+                    debug("Posted ticket panel in #" + channel.getName());
+                },
+                failure -> warning("Failed to send ticket panel: " + failure.getMessage()));
+    }
+
+    private EmbedBuilder buildPanelEmbed() {
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("%max_tickets%", String.valueOf(maxOpenTickets));
+        placeholders.put("%auto_close_hours%", String.valueOf(inactiveHours));
+        placeholders.put("%support_role%", supportRoleName);
+        placeholders.put("%category%", ticketCategoryName);
+        placeholders.put("%enabled%", String.valueOf(autoCloseInactive));
+
+        EmbedBuilder embed = new EmbedBuilder()
+            .setTitle(applyPlaceholders(panelTitle, placeholders))
+            .setDescription(applyPlaceholders(panelDescription, placeholders))
+            .setTimestamp(Instant.now());
+
+        String footer = applyPlaceholders(panelFooter, placeholders);
+        if (!footer.isEmpty()) {
+            embed.setFooter(footer, null);
+        }
+
+        Color color = parseColor(panelColorHex, EmbedUtils.BRAND_PRIMARY);
+        embed.setColor(color);
+        try {
+            if (panelImage != null && !panelImage.isEmpty()) embed.setImage(panelImage);
+            if (panelThumbnail != null && !panelThumbnail.isEmpty()) embed.setThumbnail(panelThumbnail);
+        } catch (IllegalArgumentException ignored) {
+        }
+        plugin.getEmbedUtils().applyStyle("ticket-panel", embed);
+        return embed;
+    }
+
+    private List<Button> buildPanelButtons() {
+        List<Button> buttons = new ArrayList<>();
+        int limit = Math.min(ticketTypes.size(), 5);
+        int index = 0;
+        for (TicketType type : ticketTypes.values()) {
+            if (index++ >= limit) break;
+            Button button = createButton(type.style, "create_ticket:" + type.id, type.label);
+            if (button == null) button = Button.primary("create_ticket:" + type.id, type.label);
+            if (type.emoji != null && !type.emoji.isEmpty()) {
+                try {
+                    button = button.withEmoji(Emoji.fromUnicode(type.emoji));
+                } catch (Exception ignored) {
+                }
+            }
+            buttons.add(button);
+        }
+        if (buttons.isEmpty()) {
+            buttons.add(Button.primary("create_ticket", panelButtonLabel));
+        }
+        return buttons;
+    }
+
+    private Button createButton(String style, String customId, String label) {
+        if (style == null) return null;
+        switch (style.toUpperCase()) {
+            case "PRIMARY":
+                return Button.primary(customId, label);
+            case "SECONDARY":
+                return Button.secondary(customId, label);
+            case "SUCCESS":
+                return Button.success(customId, label);
+            case "DANGER":
+                return Button.danger(customId, label);
+            case "LINK":
+                if (customId.startsWith("http://") || customId.startsWith("https://")) {
+                    return Button.link(customId, label);
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    private TextChannel resolvePanelChannel(Guild guild) {
+        // 1) Global tickets channel from discord.channels.tickets (ID or name)
+        String configured = plugin.getConfig().getString("discord.channels.tickets", "");
+        TextChannel channel = resolveTextChannel(guild, configured);
+        if (channel != null) return channel;
+
+        // 2) ticket-panel-channel (ID or name)
+        channel = resolveTextChannel(guild, ticketChannelName);
+        if (channel != null) return channel;
+
+        // 3) Create it in the ticket category
+        try {
+            Category category = getOrCreateCategory(guild, ticketCategoryName);
+            return guild.createTextChannel(ticketChannelName)
                 .setParent(category)
                 .setTopic("Create a support ticket")
                 .complete();
+        } catch (Exception e) {
+            warning("Failed to create ticket panel channel: " + e.getMessage());
+            return null;
         }
-        
-        // Make panelChannel final for lambda
-        final TextChannel finalPanelChannel = panelChannel;
-        
-        // Clear old messages
-        finalPanelChannel.getHistory().retrievePast(10).queue(messages -> {
-            for (Message msg : messages) {
-                if (msg.getAuthor().equals(plugin.getDiscordManager().getJDA().getSelfUser())) {
-                    msg.delete().queue();
-                }
-            }
+    }
 
-            // Send new modern panel
-            EmbedBuilder embed = new EmbedBuilder()
-                .setColor(EmbedUtils.BRAND_PRIMARY)
-                .setTitle("Support Tickets")
-                .setDescription(
-                    "Create a ticket for help from staff.\n\n" +
-                    "• Max " + maxOpenTickets + " open tickets per user\n" +
-                    "• Tickets close after " + inactiveHours + " hours of inactivity\n" +
-                    "• Be respectful to support staff")
-                .addField("Priorities", "LOW · MEDIUM · HIGH · URGENT", false)
-                .setFooter("XDiscordUltimate Tickets • Click below to create a ticket", null)
-                .setTimestamp(Instant.now());
-
-            finalPanelChannel.sendMessageEmbeds(embed.build())
-                .setActionRow(
-                    Button.primary("create_ticket", "Create Ticket")
-                        .withEmoji(Emoji.fromUnicode("🎫"))
-                )
-                .queue();
-        });
+    private TextChannel resolveTextChannel(Guild guild, String idOrName) {
+        if (idOrName == null || idOrName.trim().isEmpty()) return null;
+        String value = idOrName.trim();
+        if (value.matches("\\d+")) {
+            TextChannel byId = guild.getTextChannelById(value);
+            if (byId != null) return byId;
+            byId = plugin.getDiscordManager().getTextChannelById(value);
+            if (byId != null) return byId;
+        }
+        return guild.getTextChannelsByName(value, true).stream().findFirst().orElse(null);
     }
     
     private void createDiscordTicket(String userId, String minecraftName, String subject) {
-        createDiscordTicket(userId, minecraftName, subject, TicketPriority.MEDIUM);
+        createDiscordTicket(userId, minecraftName, subject, TicketPriority.MEDIUM, defaultTicketType());
     }
 
     private void createDiscordTicket(String userId, String minecraftName, String subject, TicketPriority priority) {
+        createDiscordTicket(userId, minecraftName, subject, priority, defaultTicketType());
+    }
+
+    private void createDiscordTicket(String userId, String minecraftName, String subject,
+                                     TicketPriority priority, TicketType type) {
         Guild guild = plugin.getDiscordManager().getMainGuild();
         if (guild == null) return;
 
@@ -793,6 +1332,7 @@ public class TicketModule extends Module {
         if (member == null) return;
 
         final TicketPriority finalPriority = priority != null ? priority : TicketPriority.MEDIUM;
+        final TicketType finalType = type != null ? type : defaultTicketType();
 
         // Get Minecraft UUID for database operations
         plugin.getDatabaseManager().getMinecraftUuid(userId)
@@ -805,7 +1345,7 @@ public class TicketModule extends Module {
                 // Check if user already has too many open tickets
                 plugin.getDatabaseManager().getOpenTicketsCount(minecraftUuid)
                     .thenAccept(openCount -> {
-                        if (openCount >= maxOpenTickets) {
+                        if (openCount >= maxOpenTickets || checkTicketLimits(userId, finalType.id) != null) {
                             return; // Already handled in button interaction
                         }
 
@@ -818,28 +1358,40 @@ public class TicketModule extends Module {
                                 }
                                 
                                 // Create Discord channel
-                                createDiscordChannel(guild, member, userId, minecraftName, subject, dbTicketId, finalPriority);
+                                createDiscordChannel(guild, member, userId, minecraftName, subject,
+                                    dbTicketId, finalPriority, finalType);
                             });
                     });
             });
     }
 
     private void createDiscordChannel(Guild guild, Member member, String userId, String minecraftName,
-                                       String subject, int dbTicketId, TicketPriority priority) {
+                                       String subject, int dbTicketId, TicketPriority priority, TicketType type) {
         TicketPriority finalPriority = priority != null ? priority : TicketPriority.MEDIUM;
+        TicketType finalType = type != null ? type : defaultTicketType();
+
+        Map<String, String> channelPlaceholders = new HashMap<>();
+        channelPlaceholders.put("%id%", String.valueOf(dbTicketId));
+        channelPlaceholders.put("%type%", finalType.label);
+        channelPlaceholders.put("%minecraft%", minecraftName);
+        channelPlaceholders.put("%user%", member.getEffectiveName());
+        channelPlaceholders.put("%subject%", subject);
+        channelPlaceholders.put("%priority%", finalPriority.label);
+
+        String channelName = applyPlaceholders(finalType.channelNameFormat, channelPlaceholders);
+        if (channelName.length() > 100) channelName = channelName.substring(0, 100);
 
         // Create ticket channel
-        Category category = getOrCreateCategory(guild);
-        TextChannel ticketChannel = guild.createTextChannel("ticket-" + dbTicketId)
+        Category category = getOrCreateCategory(guild, finalType.category);
+        TextChannel ticketChannel = guild.createTextChannel(channelName)
             .setParent(category)
-            .setTopic("Support ticket for " + member.getEffectiveName() + " | MC: " + minecraftName
-                + " | Priority: " + finalPriority.name())
+            .setTopic(applyPlaceholders(channelTopicFormat, channelPlaceholders))
             .addPermissionOverride(guild.getPublicRole(), null, EnumSet.of(Permission.VIEW_CHANNEL))
             .addPermissionOverride(member, EnumSet.of(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND), null)
             .complete();
 
         // Add support role permissions
-        Role supportRole = guild.getRolesByName(supportRoleName, true).stream().findFirst().orElse(null);
+        Role supportRole = guild.getRolesByName(finalType.supportRole, true).stream().findFirst().orElse(null);
         if (supportRole != null) {
             ticketChannel.upsertPermissionOverride(supportRole)
                 .setAllowed(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_MANAGE)
@@ -853,24 +1405,22 @@ public class TicketModule extends Module {
         Ticket ticket = new Ticket(String.valueOf(dbTicketId), userId, minecraftName, subject, ticketChannel.getId());
         ticket.dbId = dbTicketId;
         ticket.priority = finalPriority;
+        ticket.type = finalType;
         activeTickets.put(String.valueOf(dbTicketId), ticket);
         channelToTicket.put(ticketChannel.getId(), String.valueOf(dbTicketId));
         userTicketCount.merge(userId, 1, Integer::sum);
+        creationCooldowns.put(userId, System.currentTimeMillis());
 
-        // Player avatar thumbnail if we can resolve UUID (best-effort)
-        String avatarUrl = "https://minotar.net/helm/" + minecraftName + "/64.png";
-
-        // Send welcome message - use priority color and avatar
+        // Send welcome message
         EmbedBuilder welcomeEmbed = buildWelcomeEmbed(ticket);
-        ticket.welcomeButtons.add(Button.danger("close_ticket", "Close Ticket")
-            .withEmoji(Emoji.fromUnicode("🔒")));
-        ticket.welcomeButtons.add(Button.secondary("claim_ticket", "Claim Ticket")
-            .withEmoji(Emoji.fromUnicode("✋")));
+        ticket.welcomeButtons.add(buildActionButton("DANGER", "close_ticket", closeButtonLabel, closeButtonEmoji));
+        ticket.welcomeButtons.add(buildActionButton("SECONDARY", "claim_ticket", claimButtonLabel, claimButtonEmoji));
 
         ticketChannel.sendMessageEmbeds(welcomeEmbed.build())
             .setActionRow(new ArrayList<>(ticket.welcomeButtons))
             .queue(sentMessage -> {
                 ticket.welcomeMessageId = sentMessage.getId();
+                saveActiveTickets();
                 debug("Captured welcome message id " + ticket.welcomeMessageId + " for ticket #" + ticket.id);
             });
 
@@ -881,6 +1431,7 @@ public class TicketModule extends Module {
 
         // Log ticket creation
         logTicketAction(String.valueOf(dbTicketId), "created", member.getEffectiveName());
+        saveActiveTickets();
 
         // Notify player in-game if online
         plugin.getDatabaseManager().getMinecraftUuid(userId)
@@ -888,11 +1439,94 @@ public class TicketModule extends Module {
                 if (uuid != null) {
                     Player player = Bukkit.getPlayer(uuid);
                     if (player != null && player.isOnline()) {
-                        player.sendMessage(plugin.getMessageManager().colorize("<gradient:#55FF55:#00AA00>✅ Your support ticket #" + dbTicketId + " has been created!</gradient>"));
-                        player.sendMessage(plugin.getMessageManager().colorize("&eCheck Discord for updates on your ticket."));
+                        Map<String, String> placeholders = new HashMap<>();
+                        placeholders.put("%id%", String.valueOf(dbTicketId));
+                        placeholders.put("%type%", finalType.label);
+                        placeholders.put("%priority%", finalPriority.label);
+                        String ticketUrl = guild.getId() + "/" + ticketChannel.getId();
+                        String link = "https://discord.com/channels/" + ticketUrl;
+                        SchedulerCompat.runTask(plugin, () -> {
+                            plugin.getMessageManager().sendMessage(player, "tickets.created", placeholders);
+                            plugin.getMessageManager().sendClickableLink(player,
+                                "&7Open your ticket in Discord: &b" + link, link);
+                        });
                     }
                 }
             });
+    }
+
+    public void openTicketGui(Player player) {
+        List<TicketType> types = new ArrayList<>(ticketTypes.values());
+        int limit = Math.min(types.size(), 5);
+
+        org.bukkit.inventory.Inventory inventory = Bukkit.createInventory(null, 27,
+            org.bukkit.ChatColor.translateAlternateColorCodes('&', "&8Create a ticket"));
+        int[] slots = {10, 11, 12, 13, 14};
+
+        for (int i = 0; i < limit; i++) {
+            TicketType type = types.get(i);
+            org.bukkit.Material material = org.bukkit.Material.matchMaterial(type.guiMaterial);
+            if (material == null || !material.isItem()) {
+                material = org.bukkit.Material.PAPER;
+            }
+            org.bukkit.inventory.ItemStack item = new org.bukkit.inventory.ItemStack(material);
+            org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&f" + type.emoji + " " + type.label));
+                meta.setLore(Collections.singletonList(
+                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&7Click to create this ticket")));
+                item.setItemMeta(meta);
+            }
+            inventory.setItem(slots[i], item);
+        }
+
+        openGuis.put(player.getUniqueId(), types.subList(0, limit));
+        player.openInventory(inventory);
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onGuiClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) return;
+        Player player = (Player) event.getWhoClicked();
+        List<TicketType> types = openGuis.get(player.getUniqueId());
+        if (types == null) return;
+        if (event.getClickedInventory() == null
+            || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            return;
+        }
+        event.setCancelled(true);
+
+        int[] slots = {10, 11, 12, 13, 14};
+        int index = -1;
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] == event.getRawSlot()) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0 || index >= types.size()) return;
+
+        TicketType type = types.get(index);
+        openGuis.remove(player.getUniqueId());
+        player.closeInventory();
+        createTicket(player, type.subject, TicketPriority.MEDIUM, type);
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onGuiClose(org.bukkit.event.inventory.InventoryCloseEvent event) {
+        openGuis.remove(event.getPlayer().getUniqueId());
+    }
+
+    private Button buildActionButton(String style, String customId, String label, String emoji) {
+        Button button = createButton(style, customId, label);
+        if (button == null) button = Button.secondary(customId, label);
+        if (emoji != null && !emoji.isEmpty()) {
+            try {
+                button = button.withEmoji(Emoji.fromUnicode(emoji));
+            } catch (Exception ignored) {
+            }
+        }
+        return button;
     }
     
     private class TicketListener extends ListenerAdapter {
@@ -902,17 +1536,18 @@ public class TicketModule extends Module {
             Member member = event.getMember();
             
             if (member == null) return;
-            
-            switch (buttonId) {
-                case "create_ticket":
-                    handleCreateTicket(event);
-                    break;
-                case "close_ticket":
-                    handleCloseTicket(event);
-                    break;
-                case "claim_ticket":
-                    handleClaimTicket(event);
-                    break;
+
+            if (buttonId.startsWith("create_ticket")) {
+                String typeId = buttonId.contains(":")
+                    ? buttonId.substring(buttonId.indexOf(':') + 1)
+                    : null;
+                handleCreateTicket(event, typeId);
+            } else if (buttonId.equals("close_ticket")) {
+                handleCloseTicket(event);
+            } else if (buttonId.equals("claim_ticket")) {
+                handleClaimTicket(event);
+            } else if (buttonId.startsWith("feedback:")) {
+                handleFeedback(event, buttonId);
             }
         }
         
@@ -935,15 +1570,23 @@ public class TicketModule extends Module {
         }
     }
     
-    private void handleCreateTicket(ButtonInteractionEvent event) {
+    private void handleCreateTicket(ButtonInteractionEvent event, String typeId) {
         Member member = event.getMember();
         String userId = member.getId();
+        final TicketType type = resolveTicketType(typeId);
 
         // Check ticket limit
         int currentTickets = userTicketCount.getOrDefault(userId, 0);
         if (currentTickets >= maxOpenTickets) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Limit Reached",
                     "You have reached the maximum number of open tickets (" + maxOpenTickets + ").").build())
+                .setEphemeral(true).queue();
+            return;
+        }
+        String limitError = checkTicketLimits(userId, type.id);
+        if (limitError != null) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Limit Reached",
+                    formatLimitError(limitError)).build())
                 .setEphemeral(true).queue();
             return;
         }
@@ -961,7 +1604,7 @@ public class TicketModule extends Module {
                 event.replyEmbeds(EmbedUtils.infoEmbed("Creating Ticket",
                         "Your support ticket is being created...").build())
                     .setEphemeral(true).queue();
-                createDiscordTicket(userId, minecraftName, "General Support");
+                createDiscordTicket(userId, minecraftName, type.subject, TicketPriority.MEDIUM, type);
             })
             .exceptionally(throwable -> {
                 plugin.getLogger().severe("Error checking verification status: " + throwable.getMessage());
@@ -988,11 +1631,7 @@ public class TicketModule extends Module {
 
         // Check permissions
         Member member = event.getMember();
-        boolean canClose = member.getId().equals(ticket.userId) ||
-            member.hasPermission(Permission.MANAGE_CHANNEL) ||
-            member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(supportRoleName));
-
-        if (!canClose) {
+        if (!canMemberClose(member, ticket)) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may close this ticket.").build())
                 .setEphemeral(true).queue();
@@ -1007,17 +1646,6 @@ public class TicketModule extends Module {
     private void handleClaimTicket(ButtonInteractionEvent event) {
         Member member = event.getMember();
 
-        // Check if member has support role
-        boolean isSupport = member.getRoles().stream()
-            .anyMatch(role -> role.getName().equalsIgnoreCase(supportRoleName));
-
-        if (!isSupport) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
-                    "Only support staff can claim tickets.").build())
-                .setEphemeral(true).queue();
-            return;
-        }
-
         String channelId = event.getChannel().getId();
         String ticketId = channelToTicket.get(channelId);
 
@@ -1025,6 +1653,18 @@ public class TicketModule extends Module {
 
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) return;
+
+        // Check if member has support role
+        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        boolean isSupport = member.getRoles().stream()
+            .anyMatch(role -> role.getName().equalsIgnoreCase(roleName));
+
+        if (!isSupport) {
+            event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
+                    "Only support staff can claim tickets.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
 
         if (ticket.claimedBy != null) {
             event.replyEmbeds(EmbedUtils.warningEmbed("Already Claimed",
@@ -1039,22 +1679,26 @@ public class TicketModule extends Module {
         event.replyEmbeds(EmbedUtils.successEmbed("Ticket Claimed",
                 "You have claimed this ticket.").build()).queue();
 
-        // Update channel topic
-        TextChannel channel = event.getGuild().getTextChannelById(channelId);
-        if (channel != null) {
-            String baseTopic = channel.getTopic() == null ? "" : channel.getTopic();
-            channel.getManager().setTopic(baseTopic + " | Claimed by " + member.getEffectiveName()).queue();
-        }
+        // Update channel topic and welcome embed to include the claim
+        updateChannelTopic(ticket);
+        refreshWelcomeMessage(ticket);
 
         logTicketAction(ticketId, "claimed", member.getEffectiveName());
+        saveActiveTickets();
     }
     
     private void closeTicket(String ticketId, String closedBy) {
+        closeTicket(ticketId, closedBy, null);
+    }
+
+    private void closeTicket(String ticketId, String closedBy, String reason) {
         Ticket ticket = activeTickets.remove(ticketId);
         if (ticket == null) return;
+        ticket.closeReason = reason;
 
         channelToTicket.remove(ticket.channelId);
         userTicketCount.merge(ticket.userId, -1, Integer::sum);
+        saveActiveTickets();
 
         // Close ticket in database
         if (ticket.dbId > 0) {
@@ -1064,31 +1708,44 @@ public class TicketModule extends Module {
         Guild guild = plugin.getDiscordManager().getMainGuild();
         TextChannel channel = guild != null ? guild.getTextChannelById(ticket.channelId) : null;
 
-        // Generate transcript
-        String transcript = ticket.generateTranscript();
+        if (saveTranscript) {
+            // Generate transcript and archive it
+            String transcript = ticket.generateTranscript();
+            String archive = "html".equalsIgnoreCase(transcriptFormat)
+                ? ticket.generateHtmlTranscript() : transcript;
 
-        // Send transcript as a file attachment to the transcript channel
-        sendTranscriptAttachment(ticket, transcript, closedBy);
+            // Send transcript as a file attachment to the transcript channel
+            sendTranscriptAttachment(ticket, archive, closedBy);
+
+            // Also save the transcript to disk
+            saveTranscript(ticket, archive);
+        }
 
         if (channel != null) {
-            // Send closing message with a muted, dedicated color (not the red error color)
+            // Send closing message
             EmbedBuilder closeEmbed = new EmbedBuilder()
                 .setColor(EmbedUtils.BRAND_SECONDARY)
                 .setTitle("Ticket Closed")
-                .setDescription("This ticket has been closed by **" + closedBy + "**.")
+                .setDescription("This ticket has been closed by **" + closedBy + "**."
+                    + (reason != null && !reason.isEmpty() ? "\n**Reason:** " + reason : ""))
                 .addField("Ticket ID", ticket.id, true)
                 .addField("Priority", ticket.priority != null ? ticket.priority.label : "MEDIUM", true)
                 .addField("Duration", formatDuration(System.currentTimeMillis() - ticket.createdAt), true)
+                .addField("Claimed By", ticket.claimedBy != null ? ticket.claimedBy : "Nobody", true)
                 .setFooter("XDiscordUltimate Tickets", null)
                 .setTimestamp(Instant.now());
+            plugin.getEmbedUtils().applyStyle("ticket-closed", closeEmbed);
 
             channel.sendMessageEmbeds(closeEmbed.build()).queue();
 
-            // Save transcript to disk as well (for archival)
-            saveTranscript(ticket, transcript);
+            // Delete the channel after the configured delay
+            if (closeDeleteDelaySeconds > 0) {
+                channel.delete().queueAfter(closeDeleteDelaySeconds, TimeUnit.SECONDS);
+            }
+        }
 
-            // Delete channel after delay
-            channel.delete().queueAfter(10, TimeUnit.SECONDS);
+        if (feedbackEnabled) {
+            sendFeedbackPrompt(ticket, reason);
         }
 
         // Notify player in-game if online
@@ -1097,15 +1754,70 @@ public class TicketModule extends Module {
                 if (uuid != null) {
                     Player player = Bukkit.getPlayer(uuid);
                     if (player != null && player.isOnline()) {
-                        player.sendMessage(plugin.getMessageManager().colorize("<gradient:#FF5555:#AA0000>🔒 Your support ticket #" + ticket.id + " has been closed by " + closedBy + "</gradient>"));
-                        if (ticket.claimedBy != null) {
-                            player.sendMessage(plugin.getMessageManager().colorize("&7Handled by: &f" + ticket.claimedBy));
-                        }
+                        Map<String, String> placeholders = new HashMap<>();
+                        placeholders.put("%id%", ticket.id);
+                        placeholders.put("%by%", closedBy);
+                        placeholders.put("%handled_by%", ticket.claimedBy != null ? ticket.claimedBy : "Nobody");
+                        SchedulerCompat.runTask(plugin, () -> {
+                            plugin.getMessageManager().sendMessage(player, "tickets.closed", placeholders);
+                            if (ticket.claimedBy != null) {
+                                plugin.getMessageManager().sendMessage(player, "tickets.handled-by", placeholders);
+                            }
+                        });
                     }
                 }
             });
 
         logTicketAction(ticketId, "closed", closedBy);
+    }
+
+    private void sendFeedbackPrompt(Ticket ticket, String reason) {
+        Guild guild = plugin.getDiscordManager() != null ? plugin.getDiscordManager().getMainGuild() : null;
+        if (guild == null) return;
+        Member creator = guild.getMemberById(ticket.userId);
+        if (creator == null) return;
+
+        EmbedBuilder embed = EmbedUtils.infoEmbed("Ticket Feedback",
+            "Ticket #" + ticket.id + " was closed."
+                + (reason != null && !reason.isEmpty() ? "\n**Reason:** " + reason : "")
+                + "\n\nHow was the support you received? Rate it from 1 (poor) to 5 (great).");
+
+        List<Button> stars = new ArrayList<>();
+        for (int i = 1; i <= 5; i++) {
+            stars.add(Button.secondary("feedback:" + ticket.id + ":" + i, String.valueOf(i)));
+        }
+
+        creator.getUser().openPrivateChannel().queue(
+            privateChannel -> privateChannel.sendMessageEmbeds(embed.build())
+                .setActionRow(stars)
+                .queue(
+                    success -> debug("Sent feedback prompt for ticket #" + ticket.id),
+                    error -> debug("Failed to send feedback prompt: " + error.getMessage())),
+            error -> debug("Could not open DM for feedback prompt: " + error.getMessage()));
+    }
+
+    private void handleFeedback(ButtonInteractionEvent event, String buttonId) {
+        String[] parts = buttonId.split(":", 3);
+        if (parts.length < 3) return;
+        int stars;
+        try {
+            stars = Integer.parseInt(parts[2]);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        if (stars < 1 || stars > 5) return;
+
+        String ticketId = parts[1];
+        String base = "feedback." + ticketId + ".";
+        data.set(base + "user-id", event.getUser().getId());
+        data.set(base + "stars", stars);
+        data.set(base + "closed-at", System.currentTimeMillis());
+        saveData();
+
+        event.replyEmbeds(EmbedUtils.successEmbed("Thanks!",
+                "You rated ticket #" + ticketId + " " + stars + "/5.").build())
+            .setEphemeral(true).queue();
+        info("Ticket #" + ticketId + " rated " + stars + "/5 by " + event.getUser().getName());
     }
 
     /**
@@ -1119,8 +1831,7 @@ public class TicketModule extends Module {
         }
 
         Guild guild = plugin.getDiscordManager().getMainGuild();
-        TextChannel transcriptChannel = guild.getTextChannelsByName(transcriptChannelName, true)
-            .stream().findFirst().orElse(null);
+        TextChannel transcriptChannel = resolveTextChannel(guild, transcriptChannelName);
 
         if (transcriptChannel == null) {
             debug("Transcript channel '" + transcriptChannelName + "' not found - skipping attachment upload");
@@ -1135,7 +1846,8 @@ public class TicketModule extends Module {
                 warning("Failed to create transcripts directory for upload");
                 return;
             }
-            String fileName = "ticket_" + ticket.id + "_" + System.currentTimeMillis() + ".txt";
+            String extension = "html".equalsIgnoreCase(transcriptFormat) ? ".html" : ".txt";
+            String fileName = "ticket_" + ticket.id + "_" + System.currentTimeMillis() + extension;
             tempFile = new File(transcriptsDir, fileName);
             try (FileWriter writer = new FileWriter(tempFile)) {
                 writer.write(transcript);
@@ -1164,7 +1876,7 @@ public class TicketModule extends Module {
     }
 
     private void startAutoCloseTask() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        SchedulerCompat.runTaskTimerAsync(plugin, () -> {
             long inactiveMillis = inactiveHours * 60 * 60 * 1000L;
             long warningMillis = (long) autoCloseWarningMinutes * 60 * 1000L;
             long currentTime = System.currentTimeMillis();
@@ -1173,8 +1885,8 @@ public class TicketModule extends Module {
                 long inactiveFor = currentTime - ticket.lastActivity;
                 if (inactiveFor > inactiveMillis) {
                     final String tid = ticket.id;
-                    Bukkit.getScheduler().runTask(plugin, () ->
-                        closeTicket(tid, "System (Inactivity)"));
+                    SchedulerCompat.runTask(plugin, () ->
+                        closeTicket(tid, "System (Inactivity)", "Inactivity"));
                 } else if (autoCloseWarningEnabled
                     && !ticket.autoCloseWarningSent
                     && inactiveFor > (inactiveMillis - warningMillis)) {
@@ -1206,14 +1918,24 @@ public class TicketModule extends Module {
         info("Sent auto-close warning for ticket #" + ticket.id);
     }
     
-    private Category getOrCreateCategory(Guild guild) {
-        return guild.getCategoriesByName(ticketCategoryName, true).stream()
+    private Category getOrCreateCategory(Guild guild, String name) {
+        String categoryName = name == null || name.isEmpty() ? ticketCategoryName : name;
+        return guild.getCategoriesByName(categoryName, true).stream()
             .findFirst()
-            .orElseGet(() -> guild.createCategory(ticketCategoryName).complete());
+            .orElseGet(() -> guild.createCategory(categoryName).complete());
     }
-    
+
     private String generateTicketId() {
         return String.format("%04d", new Random().nextInt(10000));
+    }
+
+    private String applyPlaceholders(String template, Map<String, String> placeholders) {
+        if (template == null) return "";
+        String result = template;
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            result = result.replace(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+        }
+        return result;
     }
     
     private void logTicketAction(String ticketId, String action, String user) {
@@ -1229,7 +1951,8 @@ public class TicketModule extends Module {
             }
             
             // Save transcript to file
-            String fileName = "ticket_" + ticket.id + "_" + System.currentTimeMillis() + ".txt";
+            String extension = "html".equalsIgnoreCase(transcriptFormat) ? ".html" : ".txt";
+            String fileName = "ticket_" + ticket.id + "_" + System.currentTimeMillis() + extension;
             File transcriptFile = new File(transcriptsDir, fileName);
             
             try (java.io.FileWriter writer = new java.io.FileWriter(transcriptFile)) {
@@ -1255,11 +1978,118 @@ public class TicketModule extends Module {
         }
     }
     
-    private void saveActiveTickets() {
-        // Active tickets live in Discord channels (already closed when channel is deleted)
-        // and the tickets table; nothing additional to persist here.
+    private void loadData() {
+        dataFile = new File(plugin.getDataFolder(), "tickets.yml");
+        if (!dataFile.exists()) {
+            try {
+                if (!dataFile.getParentFile().exists()) {
+                    dataFile.getParentFile().mkdirs();
+                }
+                dataFile.createNewFile();
+            } catch (Exception e) {
+                warning("Could not create tickets.yml: " + e.getMessage());
+            }
+        }
+        data = YamlConfiguration.loadConfiguration(dataFile);
+        panelChannelId = data.getString("panel.channel-id", "");
+        panelMessageId = data.getString("panel.message-id", "");
     }
-    
+
+    private void saveData() {
+        if (data == null || dataFile == null) return;
+        try {
+            data.save(dataFile);
+        } catch (Exception e) {
+            warning("Could not save tickets.yml: " + e.getMessage());
+        }
+    }
+
+    private void saveActiveTickets() {
+        if (data == null) return;
+
+        data.set("active", null);
+        for (Ticket ticket : activeTickets.values()) {
+            String base = "active." + ticket.id + ".";
+            data.set(base + "user-id", ticket.userId);
+            data.set(base + "minecraft", ticket.minecraftName);
+            data.set(base + "subject", ticket.subject);
+            data.set(base + "channel-id", ticket.channelId);
+            data.set(base + "message-id", ticket.welcomeMessageId);
+            data.set(base + "priority", ticket.priority != null ? ticket.priority.name() : "MEDIUM");
+            data.set(base + "type", ticket.type != null ? ticket.type.id : "default");
+            data.set(base + "claimed-by", ticket.claimedBy);
+            data.set(base + "claimed-by-id", ticket.claimedById);
+            data.set(base + "created-at", ticket.createdAt);
+            data.set(base + "last-activity", ticket.lastActivity);
+            List<String> participantEntries = new ArrayList<>();
+            for (Map.Entry<String, String> participant : ticket.participants.entrySet()) {
+                participantEntries.add(participant.getKey() + "|" + participant.getValue());
+            }
+            data.set(base + "participants", participantEntries);
+        }
+        data.set("panel.channel-id", panelChannelId);
+        data.set("panel.message-id", panelMessageId);
+        saveData();
+    }
+
+    /**
+     * Restore tickets that survived a server restart.
+     */
+    private void restoreActiveTickets() {
+        if (data == null) return;
+        Guild guild = plugin.getDiscordManager().getMainGuild();
+        if (guild == null) return;
+        ConfigurationSection section = data.getConfigurationSection("active");
+        if (section == null) return;
+
+        int restored = 0;
+        for (String id : section.getKeys(false)) {
+            ConfigurationSection entry = section.getConfigurationSection(id);
+            if (entry == null) continue;
+
+            String channelId = entry.getString("channel-id", "");
+            if (channelId.isEmpty() || guild.getTextChannelById(channelId) == null) {
+                continue;
+            }
+
+            String userId = entry.getString("user-id", "");
+            String minecraftName = entry.getString("minecraft", "Unknown");
+            String subject = entry.getString("subject", "General Support");
+
+            Ticket ticket = new Ticket(id, userId, minecraftName, subject, channelId);
+            try {
+                ticket.dbId = Integer.parseInt(id);
+            } catch (NumberFormatException ignored) {
+                ticket.dbId = -1;
+            }
+            ticket.welcomeMessageId = entry.getString("message-id", null);
+            ticket.priority = TicketPriority.fromString(entry.getString("priority", "MEDIUM"));
+            ticket.type = resolveTicketType(entry.getString("type", null));
+            ticket.claimedBy = entry.getString("claimed-by", null);
+            ticket.claimedById = entry.getString("claimed-by-id", null);
+            ticket.createdAt = entry.getLong("created-at", System.currentTimeMillis());
+            ticket.lastActivity = entry.getLong("last-activity", System.currentTimeMillis());
+            for (String participantEntry : entry.getStringList("participants")) {
+                String[] parts = participantEntry.split("\\|", 2);
+                if (parts.length == 2 && !parts[0].isEmpty()) {
+                    ticket.participants.put(parts[0], parts[1]);
+                }
+            }
+            ticket.welcomeButtons.add(buildActionButton("DANGER", "close_ticket", closeButtonLabel, closeButtonEmoji));
+            ticket.welcomeButtons.add(buildActionButton("SECONDARY", "claim_ticket", claimButtonLabel, claimButtonEmoji));
+
+            activeTickets.put(id, ticket);
+            channelToTicket.put(channelId, id);
+            userTicketCount.merge(userId, 1, Integer::sum);
+            restored++;
+        }
+
+        if (restored > 0) {
+            info("Restored " + restored + " active ticket(s)");
+        }
+        saveActiveTickets();
+    }
+
     private String formatDuration(long millis) {
         long hours = TimeUnit.MILLISECONDS.toHours(millis);
         long minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60;
@@ -1271,31 +2101,70 @@ public class TicketModule extends Module {
      */
     private EmbedBuilder buildWelcomeEmbed(Ticket ticket) {
         TicketPriority priority = ticket.priority != null ? ticket.priority : TicketPriority.MEDIUM;
-        String avatarUrl = "https://minotar.net/helm/" + ticket.minecraftName + "/64.png";
+        TicketType type = ticket.type != null ? ticket.type : defaultTicketType();
 
-        StringBuilder description = new StringBuilder();
-        description.append("Welcome <@").append(ticket.userId).append(">!\n\n");
-        description.append("**Subject:** ").append(ticket.subject).append("\n");
-        description.append("**Minecraft:** ").append(ticket.minecraftName).append("\n");
-        description.append("**Priority:** ").append(priority.label).append("\n");
-        if (ticket.description != null && !ticket.description.isEmpty()) {
-            description.append("\n**Description:**\n").append(ticket.description).append("\n");
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("%id%", ticket.id);
+        placeholders.put("%user%", "<@" + ticket.userId + ">");
+        placeholders.put("%minecraft%", ticket.minecraftName);
+        placeholders.put("%subject%", ticket.subject);
+        placeholders.put("%priority%", priority.label);
+        placeholders.put("%priority_emoji%", priority.emoji);
+        placeholders.put("%type%", type.label);
+        placeholders.put("%claimed_by%", ticket.claimedBy != null ? ticket.claimedBy : "Nobody");
+        placeholders.put("%created%", "<t:" + (ticket.createdAt / 1000) + ":R>");
+        placeholders.put("%description%", ticket.description != null && !ticket.description.isEmpty()
+            ? "**Description:**\n" + ticket.description : "");
+
+        String titleTemplate = type.welcomeTitle != null && !type.welcomeTitle.isEmpty()
+            ? type.welcomeTitle : welcomeTitle;
+        String descriptionTemplate = type.welcomeDescription != null && !type.welcomeDescription.isEmpty()
+            ? type.welcomeDescription : welcomeDescription;
+
+        Color color = priority.color;
+        if (type.color != null && !type.color.isEmpty()) {
+            color = parseColor(type.color, color);
+        } else {
+            color = parseColor(welcomeColorHex, color);
         }
-        description.append("\nA support team member will be with you shortly.\n");
-        description.append("Please describe your issue in detail.");
 
-        String title = priority.label;
-        return new EmbedBuilder()
-            .setColor(priority.color)
-            .setTitle("Ticket #" + ticket.id + " — " + title)
-            .setThumbnail(avatarUrl)
-            .setDescription(description.toString())
-            .addField("Ticket Information",
-                "Created: <t:" + (ticket.createdAt / 1000) + ":R>\n" +
-                "Status: Open\n" +
-                "Priority: " + priority.label, false)
-            .setFooter("XDiscordUltimate Tickets", null)
+        EmbedBuilder embed = new EmbedBuilder()
+            .setColor(color)
+            .setTitle(applyPlaceholders(titleTemplate, placeholders))
+            .setDescription(applyPlaceholders(descriptionTemplate, placeholders))
             .setTimestamp(Instant.now());
+
+        String footer = applyPlaceholders(welcomeFooter, placeholders);
+        if (!footer.isEmpty()) {
+            embed.setFooter(footer, null);
+        }
+
+        String thumbnail = applyPlaceholders(welcomeThumbnail, placeholders);
+        if (!thumbnail.isEmpty()) {
+            try {
+                embed.setThumbnail(thumbnail);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        if (welcomeShowInfoField) {
+            StringBuilder info = new StringBuilder();
+            info.append("Created: ").append(placeholders.get("%created%")).append("\n");
+            info.append("Status: ").append(ticket.claimedBy != null
+                ? "Claimed by " + ticket.claimedBy : "Open").append("\n");
+            info.append("Priority: ").append(priority.emoji).append(" ").append(priority.label);
+            if (!ticket.participants.isEmpty()) {
+                List<String> mentions = new ArrayList<>();
+                for (String id : ticket.participants.keySet()) {
+                    mentions.add("<@" + id + ">");
+                }
+                info.append("\nParticipants: ").append(String.join(", ", mentions));
+            }
+            embed.addField("Ticket Information", info.toString(), false);
+        }
+
+        plugin.getEmbedUtils().applyStyle("ticket-welcome", embed);
+        return embed;
     }
 
     /**
@@ -1359,8 +2228,9 @@ public class TicketModule extends Module {
             return false;
         }
         boolean isCreator = member.getId().equals(ticket.userId);
+        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
         boolean isSupport = member.hasPermission(Permission.MANAGE_CHANNEL)
-            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(supportRoleName));
+            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(roleName));
         if (!isCreator && !isSupport) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may edit this ticket.").build())
@@ -1399,11 +2269,14 @@ public class TicketModule extends Module {
         final String channelId;
         String welcomeMessageId;
         final List<Button> welcomeButtons;
-        final long createdAt;
+        long createdAt;
         long lastActivity;
         String claimedBy;
         String claimedById;
+        String closeReason;
+        final Map<String, String> participants;
         TicketPriority priority;
+        TicketType type;
         boolean autoCloseWarningSent;
         final List<TicketMessage> messages;
         int dbId; // Database ticket ID
@@ -1419,7 +2292,10 @@ public class TicketModule extends Module {
             this.welcomeButtons = new ArrayList<>();
             this.createdAt = System.currentTimeMillis();
             this.lastActivity = createdAt;
+            this.closeReason = null;
+            this.participants = new LinkedHashMap<>();
             this.priority = TicketPriority.MEDIUM;
+            this.type = null;
             this.autoCloseWarningSent = false;
             this.messages = new ArrayList<>();
             this.dbId = -1;
@@ -1436,6 +2312,12 @@ public class TicketModule extends Module {
             transcript.append("Priority: ").append(priority != null ? priority.label : "MEDIUM").append("\n");
             transcript.append("Created: ").append(new Date(createdAt)).append("\n");
             transcript.append("Claimed by: ").append(claimedBy != null ? claimedBy : "None").append("\n");
+            if (!participants.isEmpty()) {
+                transcript.append("Participants: ").append(String.join(", ", participants.values())).append("\n");
+            }
+            if (closeReason != null && !closeReason.isEmpty()) {
+                transcript.append("Close reason: ").append(closeReason).append("\n");
+            }
             transcript.append("\n--- Messages ---\n\n");
 
             for (TicketMessage msg : messages) {
@@ -1444,6 +2326,54 @@ public class TicketModule extends Module {
             }
 
             return transcript.toString();
+        }
+
+        String generateHtmlTranscript() {
+            StringBuilder html = new StringBuilder();
+            html.append("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n");
+            html.append("<title>Ticket #").append(escapeHtml(id)).append("</title>\n");
+            html.append("<style>")
+                .append("body{font-family:Arial,Helvetica,sans-serif;background:#313338;color:#dbdee1;margin:24px;}")
+                .append("h1{font-size:20px;}h2{font-size:16px;}")
+                .append(".meta{padding:12px;margin:16px 0;background:#2b2d31;border-radius:8px;line-height:1.6;}")
+                .append(".msg{padding:8px 12px;margin:6px 0;background:#2b2d31;border-radius:6px;}")
+                .append(".author{color:#5865f2;font-weight:bold;}")
+                .append(".time{color:#949ba4;font-size:12px;margin-left:8px;}")
+                .append("pre{white-space:pre-wrap;margin:4px 0 0;font-family:inherit;}")
+                .append("</style>\n</head>\n<body>\n");
+
+            html.append("<h1>Ticket #").append(escapeHtml(id)).append(" - ")
+                .append(escapeHtml(subject)).append("</h1>\n");
+            html.append("<div class=\"meta\">");
+            html.append("<div><b>User:</b> ").append(escapeHtml(minecraftName)).append("</div>");
+            html.append("<div><b>Priority:</b> ")
+                .append(escapeHtml(priority != null ? priority.label : "MEDIUM")).append("</div>");
+            html.append("<div><b>Created:</b> ").append(new Date(createdAt)).append("</div>");
+            html.append("<div><b>Claimed by:</b> ")
+                .append(escapeHtml(claimedBy != null ? claimedBy : "None")).append("</div>");
+            if (!participants.isEmpty()) {
+                html.append("<div><b>Participants:</b> ")
+                    .append(escapeHtml(String.join(", ", participants.values()))).append("</div>");
+            }
+            if (closeReason != null && !closeReason.isEmpty()) {
+                html.append("<div><b>Close reason:</b> ").append(escapeHtml(closeReason)).append("</div>");
+            }
+            html.append("</div>\n<h2>Messages</h2>\n");
+
+            for (TicketMessage msg : messages) {
+                html.append("<div class=\"msg\"><span class=\"author\">").append(escapeHtml(msg.author))
+                    .append("</span><span class=\"time\">").append(new Date(msg.timestamp)).append("</span>")
+                    .append("<pre>").append(escapeHtml(msg.content)).append("</pre></div>\n");
+            }
+
+            html.append("</body>\n</html>\n");
+            return html.toString();
+        }
+
+        private String escapeHtml(String value) {
+            if (value == null) return "";
+            return value.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;");
         }
     }
     
@@ -1456,6 +2386,41 @@ public class TicketModule extends Module {
             this.author = author;
             this.content = content;
             this.timestamp = timestamp;
+        }
+    }
+
+    /**
+     * A configurable ticket type shown as a button on the panel.
+     */
+    public static class TicketType {
+        final String id;
+        final String label;
+        final String emoji;
+        final String style;
+        final String category;
+        final String supportRole;
+        final String channelNameFormat;
+        final String subject;
+        final String welcomeTitle;
+        final String welcomeDescription;
+        final String color;
+        final String guiMaterial;
+
+        TicketType(String id, String label, String emoji, String style, String category,
+                   String supportRole, String channelNameFormat, String subject,
+                   String welcomeTitle, String welcomeDescription, String color, String guiMaterial) {
+            this.id = id;
+            this.label = label;
+            this.emoji = emoji;
+            this.style = style;
+            this.category = category;
+            this.supportRole = supportRole;
+            this.channelNameFormat = channelNameFormat;
+            this.subject = subject;
+            this.welcomeTitle = welcomeTitle;
+            this.welcomeDescription = welcomeDescription;
+            this.color = color;
+            this.guiMaterial = guiMaterial;
         }
     }
 }

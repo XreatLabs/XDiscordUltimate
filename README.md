@@ -2,11 +2,22 @@
 
 The most comprehensive Discord integration plugin for Minecraft servers. Features modern slash commands, chat bridge, verification system, tickets, moderation, and much more.
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![Minecraft](https://img.shields.io/badge/minecraft-1.16.5+-green)
 ![Java](https://img.shields.io/badge/java-17+-orange)
 ![Discord](https://img.shields.io/badge/discord-JDA_5.0-7289da)
 ![License](https://img.shields.io/badge/license-MIT-purple)
+
+## What's New in 1.3.0
+
+- **Ticket upgrades** - per-type open limits, creation cooldown, close reasons, 1-5 star feedback DMs, ticket participants, and HTML transcripts.
+- **Stats upgrades** - stat ranks, cached top lists, weekly/monthly snapshots, `/stats compare`, and matching PlaceholderAPI placeholders.
+- **Discord role menus** - config-driven panels with buttons that toggle member roles.
+- **Two-way moderation sync** - Discord timeouts and mute roles now mute Minecraft chat, mutes persist across restarts, and auto-moderation actions are logged to Discord.
+- **Minecraft-side polish** - `/support` opens a ticket GUI, ticket links are clickable in chat, and player stats can be shown in the tab list.
+- **Integrations** - LuckPerms group to Discord role sync, Vault rewards for verifying, and a configurable Spigot update-checker ID.
+- **Folia-ready scheduler bridge** - all scheduling is routed through a `SchedulerCompat` layer that falls back to the Bukkit scheduler and can be adapted for Folia.
+- **Ops quality of life** - `/xdiscord reload <module>`, `/xdiscord stats snapshot|reset`, startup config validation, tickets.yml backups, and moderation history persistence.
 
 ## What's New in 1.2.0
 
@@ -23,7 +34,8 @@ The most comprehensive Discord integration plugin for Minecraft servers. Feature
 - **Support Tickets** - Full ticket system with Discord integration
 - **Player Stats** - Track and display player statistics
 - **Server Status** - Auto-updating status embed in Discord
-- **Moderation** - Ban sync, chat filtering, and report system
+- **Moderation** - Ban/kick/mute sync, chat filtering, and report system
+- **Role Menus** - Button panels that let members pick their own roles
 - **Admin Console** - Execute server commands from Discord
 - **Announcements** - Broadcast to both Discord and Minecraft
 - **Booster Perks** - Reward Discord server boosters
@@ -46,6 +58,15 @@ discord:
     chat: "CHANNEL_ID"
     logs: "CHANNEL_ID"
 ```
+
+## Building from source
+
+```bash
+gradle build            # release jar:  build/libs/XDiscordUltimate-1.3.0.jar
+gradle shadowJar -Pdev  # development jar: build/libs/XDiscordUltimate-1.3.0-DEV.jar
+```
+
+The `-Pdev` flag appends a `-DEV` suffix to the plugin version so development builds are easy to tell apart from releases. Requires JDK 17 or newer.
 
 ## Documentation
 
@@ -81,7 +102,7 @@ discord:
 | [Server Logging](docs/modules/SERVER-LOGGING.md) | Event logging to Discord |
 | [Admin Alerts](docs/modules/ADMIN-ALERTS.md) | Server health monitoring |
 | [Tickets](docs/modules/TICKETS.md) | Support ticket system |
-| [Moderation](docs/modules/MODERATION.md) | Ban sync, filter, reports |
+| [Moderation](docs/modules/MODERATION.md) | Ban/kick/mute sync, filter, reports |
 | [Server Control](docs/modules/SERVER-CONTROL.md) | Remote server management |
 | [Player Stats](docs/modules/PLAYER-STATS.md) | Statistics tracking |
 | [Server Status](docs/modules/SERVER-STATUS.md) | Auto-updating status embed |
@@ -97,7 +118,7 @@ discord:
 |---------|-------------|
 | `/verify <code>` | Link your Discord account |
 | `/unlink` | Unlink your Discord account |
-| `/support <message>` | Create a support ticket |
+| `/support [message]` | Open the ticket menu or create a ticket |
 | `/report <player> <reason>` | Report a player |
 | `/stats [player]` | View player statistics |
 | `/help` | Open help menu |
@@ -105,7 +126,8 @@ discord:
 ### Admin Commands
 | Command | Description |
 |---------|-------------|
-| `/xdiscord reload` | Reload configuration |
+| `/xdiscord reload [module]` | Reload configuration or a single module |
+| `/xdiscord stats <snapshot\|reset> <weekly\|monthly>` | Manage stats snapshots |
 | `/xdiscord status` | Show plugin status |
 | `/xdiscord modules` | List all modules |
 | `/xdiscord unlink <player>` | Unlink a player from Discord |
@@ -136,14 +158,14 @@ discord:
 
 ## Requirements
 
-- **Minecraft Server**: Spigot/Paper 1.16.5 – 1.21.x (latest)
-- **Java**: 17 or higher
+- **Minecraft Server**: Spigot/Paper 1.16.5 – 26.x (latest)
+- **Java**: 17 or higher (Java 21+ required by Minecraft 1.20.5+ and 26.x servers)
 - **Discord Bot**: With MESSAGE_CONTENT intent enabled
 
 ### Optional Dependencies
 - LuckPerms - For permission groups
 - PlaceholderAPI - For placeholders
-- Vault - For economy (future)
+- Vault - Economy integration (balance commands and verify rewards)
 
 ## Configuration Example
 

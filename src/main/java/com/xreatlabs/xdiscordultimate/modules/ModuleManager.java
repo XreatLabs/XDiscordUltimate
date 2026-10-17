@@ -63,6 +63,7 @@ public class ModuleManager {
         registerModule("economy-bridge", new EconomyBridgeModule(plugin));
         registerModule("server-ip", new ServerIPModule(plugin));
         registerModule("whitelist", new WhitelistModule(plugin));
+        registerModule("role-menus", new com.xreatlabs.xdiscordultimate.modules.roles.RoleMenuModule(plugin));
 
         // Enable modules based on configuration
         for (Map.Entry<String, Module> entry : modules.entrySet()) {
@@ -138,6 +139,32 @@ public class ModuleManager {
         return modules.get(key);
     }
     
+    /**
+     * Find a module by config key or display name
+     */
+    public Module findModule(String name) {
+        if (name == null) return null;
+        Module module = modules.get(name.toLowerCase().replace(' ', '-'));
+        if (module != null) return module;
+        for (Module candidate : modules.values()) {
+            if (candidate.getName().equalsIgnoreCase(name)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reload a single module by config key or display name
+     */
+    public Module reloadModule(String name) {
+        Module module = findModule(name);
+        if (module != null) {
+            module.reload();
+        }
+        return module;
+    }
+
     /**
      * Get a module by class
      */

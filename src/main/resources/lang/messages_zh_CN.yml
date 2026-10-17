@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>错误!</gradient> &7发送白名单请求失败。
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>成功!</gradient> &7您的账户现已关联到Discord!
   ticket-created: <gradient:#55FF55:#55FFFF>工单已创建!</gradient> &7请查看Discord获取更新。

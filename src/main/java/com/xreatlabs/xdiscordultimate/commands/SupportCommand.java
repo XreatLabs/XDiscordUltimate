@@ -42,8 +42,13 @@ public class SupportCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 0) {
-            plugin.getMessageManager().sendMessage(player, "support.no-message");
-            plugin.getMessageManager().sendInfo(player, "support.usage");
+            TicketModule guiModule = plugin.getModuleManager().getModule(TicketModule.class);
+            if (guiModule != null && guiModule.isEnabled()) {
+                guiModule.openTicketGui(player);
+            } else {
+                plugin.getMessageManager().sendMessage(player, "support.no-message");
+                plugin.getMessageManager().sendInfo(player, "support.usage");
+            }
             return true;
         }
 

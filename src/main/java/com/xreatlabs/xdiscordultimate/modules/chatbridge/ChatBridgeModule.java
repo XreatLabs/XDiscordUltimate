@@ -3,6 +3,7 @@ package com.xreatlabs.xdiscordultimate.modules.chatbridge;
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
 import com.xreatlabs.xdiscordultimate.utils.ColorUtils;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import com.xreatlabs.xdiscordultimate.utils.WebhookManager;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Member;
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ChatBridgeModule extends Module implements Listener {
     
@@ -59,6 +61,8 @@ public class ChatBridgeModule extends Module implements Listener {
     // Custom format options
     private boolean showPlayerPrefix;
     private boolean showPlayerSuffix;
+    private boolean relayAttachments;
+    private boolean showAttachmentLinks;
     private String discordUsernameFormat;
     
     // Typing indicator tracking
@@ -220,6 +224,8 @@ public class ChatBridgeModule extends Module implements Listener {
             webhookUrl = config.getString("webhook-url", "");
             skinProvider = config.getString("skin-provider", "mc-heads");
             filterBotMessages = config.getBoolean("filter-bot-messages", true);
+            relayAttachments = config.getBoolean("relay-attachments", true);
+            showAttachmentLinks = config.getBoolean("show-attachment-links", true);
             minecraftFormat = config.getString("minecraft-format", "**%player%**: %message%");
             discordFormat = config.getString("discord-format", "&7[&9Discord&7] &b%user%&7: &f%message%");
             
@@ -243,6 +249,8 @@ public class ChatBridgeModule extends Module implements Listener {
             webhookUrl = "";
             skinProvider = "mc-heads";
             filterBotMessages = true;
+            relayAttachments = true;
+            showAttachmentLinks = true;
             minecraftFormat = "**%player%**: %message%";
             discordFormat = "&7[&9Discord&7] &b%user%&7: &f%message%";
             showMentions = true;
@@ -407,7 +415,7 @@ public class ChatBridgeModule extends Module implements Listener {
             .setAuthor(displayName, null, avatarUrl)
             .setDescription(formattedMessage)
             .setThumbnail(avatarUrl)
-            .setColor(new Color(85, 255, 85))
+            .setColor(EmbedUtils.SUCCESS)
             .setTimestamp(Instant.now());
 
         debug("[ChatBridge] Sending embed with avatar: " + avatarUrl);
@@ -447,7 +455,7 @@ public class ChatBridgeModule extends Module implements Listener {
                 // Broadcast typing indicator to Minecraft
                 String typingMessage = ColorUtils.parse("&7[&9Discord&7] &e" + userName + " &7is typing...");
                 
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                SchedulerCompat.runTask(plugin, () -> {
                     for (Player player : Bukkit.getOnlinePlayers()) {
                         player.sendMessage(typingMessage);
                     }
@@ -460,7 +468,7 @@ public class ChatBridgeModule extends Module implements Listener {
             typingUsers.put(userName, now);
             
             // Schedule cleanup
-            Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskLaterAsync(plugin, () -> {
                 Long storedTime = typingUsers.get(userName);
                 if (storedTime != null && System.currentTimeMillis() - storedTime >= TYPING_TIMEOUT) {
                     typingUsers.remove(userName);
@@ -526,7 +534,7 @@ public class ChatBridgeModule extends Module implements Listener {
             fullMessage.append(message);
             
             // Handle attachments
-            if (!discordMessage.getAttachments().isEmpty()) {
+            if (relayAttachments && !discordMessage.getAttachments().isEmpty()) {
                 for (Message.Attachment attachment : discordMessage.getAttachments()) {
                     if (fullMessage.length() > 0) {
                         fullMessage.append(" ");
@@ -537,6 +545,9 @@ public class ChatBridgeModule extends Module implements Listener {
                         fullMessage.append("&b[Video: ").append(attachment.getFileName()).append("]&r");
                     } else {
                         fullMessage.append("&b[File: ").append(attachment.getFileName()).append("]&r");
+                    }
+                    if (showAttachmentLinks) {
+                        fullMessage.append(" &7").append(attachment.getUrl()).append("&r");
                     }
                 }
             }
@@ -608,7 +619,7 @@ public class ChatBridgeModule extends Module implements Listener {
         
         // Check for Minecraft player mentions and notify them
         final String finalMessage = formattedMessage;
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             // Broadcast to all players
             for (Player player : Bukkit.getOnlinePlayers()) {
                 player.sendMessage(finalMessage);
@@ -836,7 +847,7 @@ public class ChatBridgeModule extends Module implements Listener {
 
         // Always use embed with player avatar when available
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(color != null ? color : Color.GRAY)
+            .setColor(color != null ? color : EmbedUtils.BRAND_SECONDARY)
             .setDescription(message)
             .setTimestamp(Instant.now());
         
@@ -873,7 +884,7 @@ public class ChatBridgeModule extends Module implements Listener {
             "%player% joined the server");
         message = message.replace("%player%", player.getName());
         
-        sendPlayerEventEmbed(player, message, new Color(0, 255, 0), "➡️ Player Joined");
+        sendPlayerEventEmbed(player, message, EmbedUtils.SUCCESS, "Player Joined");
     }
     
     /**
@@ -884,7 +895,7 @@ public class ChatBridgeModule extends Module implements Listener {
             "%player% left the server");
         message = message.replace("%player%", player.getName());
         
-        sendPlayerEventEmbed(player, message, new Color(255, 0, 0), "⬅️ Player Left");
+        sendPlayerEventEmbed(player, message, EmbedUtils.ERROR, "Player Left");
     }
     
     /**
@@ -896,7 +907,7 @@ public class ChatBridgeModule extends Module implements Listener {
         message = message.replace("%player%", player.getName())
                         .replace("%death_message%", deathMessage);
         
-        sendPlayerEventEmbed(player, message, new Color(255, 165, 0), "💀 Player Died");
+        sendPlayerEventEmbed(player, message, EmbedUtils.WARNING, "Player Died");
     }
     
     /**
@@ -937,7 +948,7 @@ public class ChatBridgeModule extends Module implements Listener {
     public void sendServerStartMessage() {
         String message = plugin.getConfig().getString("messages.server-start", 
             ":white_check_mark: **Server has started!**");
-        sendServerMessage(message, new Color(0, 255, 0));
+        sendServerMessage(message, EmbedUtils.SUCCESS);
     }
     
     /**
@@ -946,7 +957,7 @@ public class ChatBridgeModule extends Module implements Listener {
     public void sendServerStopMessage() {
         String message = plugin.getConfig().getString("messages.server-stop", 
             ":octagonal_sign: **Server is stopping...**");
-        sendServerMessage(message, new Color(255, 0, 0));
+        sendServerMessage(message, EmbedUtils.ERROR);
     }
     
     /**

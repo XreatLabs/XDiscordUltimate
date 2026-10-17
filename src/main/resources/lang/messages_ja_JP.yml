@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>エラー!</gradient> &7ホワイトリストリクエストの送信に失敗しました。
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>成功！</gradient> &7アカウントがDiscordとリンクされました！
   ticket-created: <gradient:#55FF55:#55FFFF>チケット作成済み！</gradient> &7更新についてはDiscordをご確認ください。

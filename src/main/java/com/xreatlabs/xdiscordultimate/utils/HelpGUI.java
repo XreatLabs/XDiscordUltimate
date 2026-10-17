@@ -115,9 +115,9 @@ public class HelpGUI implements Listener {
             "<rainbow>XDiscordUltimate</rainbow>",
             "&7━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "&fVersion: &e" + plugin.getDescription().getVersion(),
-            "&fAuthor: &eXreaLabs",
+            "&fAuthor: &eXReatLabs",
             "",
-            "&7Premium Discord ↔ Minecraft",
+            "&7Discord and Minecraft",
             "&7integration plugin",
             "",
             "&e➤ Click for info"));
@@ -228,10 +228,11 @@ public class HelpGUI implements Listener {
 
         inv.setItem(0, createGradientItem(Material.ARROW, "&7← Back to Main Help", "&7Click to go back"));
 
-        inv.setItem(10, createGradientItem(Material.WRITABLE_BOOK, "<gradient:#55FF55:#00AA00>/support <message></gradient>", 
+        inv.setItem(10, createGradientItem(Material.WRITABLE_BOOK, "<gradient:#55FF55:#00AA00>/support</gradient>", 
             "&7━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "&fCreate a support ticket",
-            "&7Usage: &f/support I need help with...",
+            "&7Usage: &f/support &7- opens the ticket menu",
+            "&7Usage: &f/support <message> &7- quick create",
             "",
             "&7Examples:",
             "&f/support Lost my items in a glitch",
@@ -246,7 +247,7 @@ public class HelpGUI implements Listener {
             "&e1. &7Create ticket with &f/support",
             "&e2. &7Discord channel is created",
             "&e3. &7Staff will respond there",
-            "&e4. &7Ticket auto-closes after 24h",
+            "&e4. &7Tickets auto-close after inactivity",
             "&e5. &7You get notifications"));
 
         inv.setItem(14, createGradientItem(Material.BARRIER, "<gradient:#FF5555:#AA0000>Ticket Limits</gradient>", 
@@ -351,6 +352,8 @@ public class HelpGUI implements Listener {
             "",
             "&7Available actions:",
             "&f• reload &7- Reload config",
+            "&f• reload <module> &7- Reload one module",
+            "&f• stats snapshot|reset &7- Manage stats data",
             "&f• info &7- Show plugin info",
             "&f• status &7- Check bot status"));
 

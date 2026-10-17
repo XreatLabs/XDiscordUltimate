@@ -49,9 +49,9 @@ public class AdminAlertsModule extends Module implements Listener {
     private final Map<String, String> playerToIp = new ConcurrentHashMap<>();
     
     // Colors
-    private final Color alertColor = new Color(255, 0, 0);
-    private final Color warningColor = new Color(255, 165, 0);
-    private final Color infoColor = new Color(0, 123, 255);
+    private final Color alertColor = com.xreatlabs.xdiscordultimate.utils.EmbedUtils.ERROR;
+    private final Color warningColor = com.xreatlabs.xdiscordultimate.utils.EmbedUtils.WARNING;
+    private final Color infoColor = com.xreatlabs.xdiscordultimate.utils.EmbedUtils.INFO;
     
     public AdminAlertsModule(XDiscordUltimate plugin) {
         super(plugin);

@@ -95,10 +95,14 @@ public class VersionUtils {
     }
 
     public static String getSupportedVersions() {
-        return "1.16.5 - 1.21.x";
+        return "1.16.5 - 26.x";
     }
 
     public static boolean isSupported() {
-        return MAJOR_VERSION == 1 && MINOR_VERSION >= MIN_SUPPORTED && MINOR_VERSION <= MAX_SUPPORTED;
+        if (MAJOR_VERSION == 1) {
+            return MINOR_VERSION >= MIN_SUPPORTED && MINOR_VERSION <= MAX_SUPPORTED;
+        }
+        // 2026+ uses year based versioning (26.1, 26.2, ...)
+        return MAJOR_VERSION >= 26;
     }
 }

@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.modules.economy;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import com.xreatlabs.xdiscordultimate.utils.ColorUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -14,7 +15,6 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
-import java.awt.Color;
 import java.lang.reflect.Method;
 import java.text.DecimalFormat;
 import java.time.Instant;
@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class EconomyBridgeModule extends Module {
 
@@ -220,7 +221,7 @@ public class EconomyBridgeModule extends Module {
 
         EmbedBuilder embed = new EmbedBuilder()
             .setTitle("Balance")
-            .setColor(new Color(255, 215, 0))
+            .setColor(EmbedUtils.PREMIUM)
             .setThumbnail(avatarUrl)
             .addField("Player", player.getName(), true)
             .addField("Balance", currencySymbol + df.format(balance) + " " + currencyName, true)
@@ -289,7 +290,7 @@ public class EconomyBridgeModule extends Module {
         EmbedBuilder embed = new EmbedBuilder()
             .setTitle("Richest Players")
             .setDescription(description.toString())
-            .setColor(new Color(255, 215, 0))
+            .setColor(EmbedUtils.PREMIUM)
             .addField("Total Economy", currencySymbol + df.format(totalEconomy) + " " + currencyName, false)
             .setTimestamp(Instant.now());
 
@@ -346,7 +347,7 @@ public class EconomyBridgeModule extends Module {
                 return;
             }
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            SchedulerCompat.runTask(plugin, () -> {
                 withdraw(sender, totalCost);
                 deposit(target, amount);
 
@@ -354,7 +355,7 @@ public class EconomyBridgeModule extends Module {
 
                 EmbedBuilder embed = new EmbedBuilder()
                     .setTitle("Transfer Successful")
-                    .setColor(Color.GREEN)
+                    .setColor(EmbedUtils.SUCCESS)
                     .addField("From", sender.getName(), true)
                     .addField("To", target.getName(), true)
                     .addField("Amount", currencySymbol + df.format(amount), true);
@@ -404,7 +405,7 @@ public class EconomyBridgeModule extends Module {
 
         DecimalFormat df = new DecimalFormat("#,##0.00");
 
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             switch (action) {
                 case "give":
                     deposit(player, amount);
@@ -432,7 +433,7 @@ public class EconomyBridgeModule extends Module {
         EmbedBuilder embed = new EmbedBuilder()
             .setTitle("Economy Admin")
             .setDescription(message)
-            .setColor(Color.GREEN)
+            .setColor(EmbedUtils.SUCCESS)
             .setTimestamp(Instant.now());
 
         event.getHook().editOriginalEmbeds(embed.build()).queue();

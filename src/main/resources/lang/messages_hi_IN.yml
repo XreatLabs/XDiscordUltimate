@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>त्रुटि!</gradient> &7व्हाइटलिस्ट अनुरोध भेजने में विफल।
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>सफलता!</gradient> &7आपका खाता अब Discord से लिंक है!
   ticket-created: <gradient:#55FF55:#55FFFF>टिकट बनाया गया!</gradient> &7अपडेट के लिए Discord की जांच करें।

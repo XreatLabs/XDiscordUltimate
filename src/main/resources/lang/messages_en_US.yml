@@ -18,8 +18,8 @@ errors:
   discord-not-linked: '&cYour Discord account is not linked!'
   cannot-report-admin: '&cYou cannot report an admin!'
   module-not-available: '&cThis module is not available right now.'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
-  ticket-create-failed: '&cFailed to create ticket. Please try again.'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
+  ticket-create-failed: <gradient:#FF5555:#AA0000>Error!</gradient> &7Failed to create ticket. Please try again.
   unknown-subcommand: '&cUnknown subcommand!'
   invalid-discord-id: '&cInvalid Discord ID format!'
   whitelist-submission-failed: '&cFailed to submit whitelist request!'
@@ -27,7 +27,7 @@ errors:
   spam: '&cPlease don''t spam the chat!'
 success:
   verified: <gradient:#55FF55:#55FFFF>Success!</gradient> &7Your account is now linked to Discord!
-  ticket-created: '&aTicket created! Check your DMs on Discord.'
+  ticket-created: <gradient:#55FF55:#55FFFF>Ticket Created!</gradient> &7Check Discord for updates.
   report-sent: <gradient:#55FF55:#00AA00>Report Submitted!</gradient> &7Moderators have been notified.
   announcement-sent: <gradient:#FFAA00:#FF5555>Announcement Sent!</gradient> &7Broadcast complete.
   debug-enabled: '&aDebug mode enabled!'
@@ -72,7 +72,9 @@ verification:
     &7You must verify within &e%minutes% &7minutes!'
 tickets:
   created: '<gradient:#55FFFF:#5555FF>Ticket #%id%</gradient> &7created! Staff will assist soon.'
-  closed: '<gradient:#AAAAAA:#555555>Ticket #%id%</gradient> &7has been closed.'
+  created-hint: '&8• &7Type: &e%type% &8• &7Priority: &e%priority% &8• &7Check Discord for updates.'
+  closed: '<gradient:#AAAAAA:#555555>Ticket #%id%</gradient> &7has been closed by &e%by%&7.'
+  handled-by: '&8• &7Handled by &f%handled_by%'
   not-found: <gradient:#FF5555:#AA0000>Not Found!</gradient> &7Ticket does not exist.
   max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7Max open tickets reached.
 support:
@@ -104,7 +106,19 @@ stats:
   kd-ratio: '&8▸ <gradient:#55FFFF:#5555FF>K/D Ratio</gradient>&8: &f%value%'
   mob-kills: '&8▸ <gradient:#55FF55:#00AA00>Mob Kills</gradient>&8: &f%value%'
   playtime: '&8▸ <gradient:#AA00AA:#FF55FF>Playtime</gradient>&8: &f%value%'
+  blocks-broken: '&8▸ <gradient:#FFAA00:#FF5555>Blocks Broken</gradient>&8: &f%value%'
+  blocks-placed: '&8▸ <gradient:#55FF55:#55FFFF>Blocks Placed</gradient>&8: &f%value%'
+  damage-dealt: '&8▸ <gradient:#FF5555:#AA0000>Damage Dealt</gradient>&8: &f%value%'
+  damage-taken: '&8▸ <gradient:#AAAAAA:#FFAA00>Damage Taken</gradient>&8: &f%value%'
+  distance-walked: '&8▸ <gradient:#55FFFF:#55FF55>Distance Walked</gradient>&8: &f%value%'
+  jumps: '&8▸ <gradient:#FF55FF:#55FFFF>Jumps</gradient>&8: &f%value%'
+  fish-caught: '&8▸ <gradient:#00AAFF:#55FFFF>Fish Caught</gradient>&8: &f%value%'
+  items-crafted: '&8▸ <gradient:#FFAA00:#55FF55>Items Crafted</gradient>&8: &f%value%'
+  advancements: '&8▸ <gradient:#FFD700:#FFAA00>Advancements</gradient>&8: &f%value%'
+  footer: ''
   not-found: <gradient:#FF5555:#AA0000>Not Found!</gradient> &7Player stats unavailable.
+  compare-header: '&bStats: &f%player% &7vs &f%player2%'
+  compare-line: '&8▸ &7%stat%&8: &f%value% &8| &f%value2%'
 moderation:
   ban-success: <gradient:#FF5555:#AA0000>Banned!</gradient> &e%player% &7has been banned.
   kick-success: <gradient:#FFAA00:#FF5555>Kicked!</gradient> &e%player% &7has been kicked.

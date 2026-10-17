@@ -206,7 +206,7 @@ public class ServerLoggingModule extends Module implements Listener {
             command = "[REDACTED COMMAND]";
         }
         
-        logServerEvent("Console Command", "Command executed: `" + command + "`", Color.CYAN);
+        logServerEvent("Console Command", "Command executed: `" + command + "`", EmbedUtils.INFO);
     }
     
     private boolean isSensitiveCommand(String command) {
@@ -248,7 +248,7 @@ public class ServerLoggingModule extends Module implements Listener {
             "Server started.\n" +
             "Version: " + Bukkit.getVersion() + "\n" +
             "Players: 0/" + Bukkit.getMaxPlayers(),
-            Color.GREEN);
+            EmbedUtils.SUCCESS);
     }
     
     /**
@@ -258,14 +258,14 @@ public class ServerLoggingModule extends Module implements Listener {
         logServerEvent("Server Stopping", 
             "Server is shutting down...\n" +
             "Online players: " + Bukkit.getOnlinePlayers().size(),
-            Color.RED);
+            EmbedUtils.ERROR);
     }
     
     /**
      * Log plugin events
      */
     public void logPluginEvent(String pluginName, String action, boolean success) {
-        Color color = success ? Color.GREEN : Color.RED;
+        Color color = success ? EmbedUtils.SUCCESS : EmbedUtils.ERROR;
         String status = success ? "✅" : "❌";
         
         logServerEvent("Plugin " + action, 
@@ -279,10 +279,10 @@ public class ServerLoggingModule extends Module implements Listener {
      */
     public void logPerformanceWarning(String metric, String value, String threshold) {
         logServerEvent("Performance Warning", 
-            "⚠️ **" + metric + "** is concerning!\n" +
+            "⚠️ **" + metric + "** is above the threshold\n" +
             "Current: " + value + "\n" +
             "Threshold: " + threshold,
-            Color.ORANGE);
+            EmbedUtils.WARNING);
     }
     
     private TextChannel getLogsChannel() {

@@ -11,6 +11,7 @@ import org.bukkit.Bukkit;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class UpdateChecker {
     
@@ -20,14 +21,17 @@ public class UpdateChecker {
     
     // GitHub API URL for releases (must match the exact repository casing)
     private static final String GITHUB_API_URL = "https://api.github.com/repos/Xreatlabs/XDiscordUltimate/releases/latest";
-    // Spigot resource ID (change this to your actual resource ID when published)
-    private static final int SPIGOT_RESOURCE_ID = 12345;
-    private static final String SPIGOT_API_URL = "https://api.spigotmc.org/legacy/update.php?resource=" + SPIGOT_RESOURCE_ID;
+    // Optional Spigot resource ID; set general.spigot-resource-id in config.yml to enable
+    private final int spigotResourceId;
+    // Optional Modrinth project slug or ID; set general.modrinth-project in config.yml to enable
+    private final String modrinthProject;
     
     public UpdateChecker(XDiscordUltimate plugin) {
         this.plugin = plugin;
         this.currentVersion = plugin.getDescription().getVersion();
         this.httpClient = new OkHttpClient();
+        this.spigotResourceId = plugin.getConfig().getInt("general.spigot-resource-id", 0);
+        this.modrinthProject = plugin.getConfig().getString("general.modrinth-project", "");
     }
     
     /**
@@ -40,12 +44,15 @@ public class UpdateChecker {
                 
                 // Only notify if we got a valid version AND it's actually newer
                 if (latestVersion != null && !latestVersion.isEmpty() && isNewerVersion(latestVersion)) {
-                    Bukkit.getScheduler().runTask(plugin, () -> {
+                    SchedulerCompat.runTask(plugin, () -> {
                         plugin.getLogger().warning("========================================");
                         plugin.getLogger().warning("A new version of XDiscordUltimate is available!");
                         plugin.getLogger().warning("Current version: " + currentVersion);
                         plugin.getLogger().warning("Latest version: " + latestVersion);
                         plugin.getLogger().warning("Download at: https://github.com/Xreatlabs/XDiscordUltimate/releases");
+                        if (modrinthProject != null && !modrinthProject.isEmpty()) {
+                            plugin.getLogger().warning("Or on Modrinth: https://modrinth.com/plugin/" + modrinthProject);
+                        }
                         plugin.getLogger().warning("========================================");
                     });
                 } else {
@@ -58,14 +65,31 @@ public class UpdateChecker {
     }
     
     /**
-     * Get the latest version from GitHub
+     * Get the latest version, trying GitHub, Modrinth, then Spigot
      */
     private String getLatestVersion() {
-        // Try GitHub first
+        String version = getLatestVersionFromGitHub();
+        if (version != null) {
+            return version;
+        }
+
+        version = getLatestVersionFromModrinth();
+        if (version != null) {
+            return version;
+        }
+
+        return getLatestVersionFromSpigot();
+    }
+    
+    /**
+     * Get the latest version from GitHub
+     */
+    private String getLatestVersionFromGitHub() {
         try {
             Request request = new Request.Builder()
                 .url(GITHUB_API_URL)
                 .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", userAgent())
                 .build();
             
             try (Response response = httpClient.newCall(request).execute()) {
@@ -74,30 +98,86 @@ public class UpdateChecker {
                     JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
                     
                     if (jsonObject.has("tag_name")) {
-                        String tagName = jsonObject.get("tag_name").getAsString();
-                        // Remove 'v' prefix if present
-                        if (tagName.startsWith("v")) {
-                            tagName = tagName.substring(1);
-                        }
-                        return tagName;
+                        return cleanVersion(jsonObject.get("tag_name").getAsString());
                     }
                 }
             }
         } catch (Exception e) {
-            // GitHub API failed, try Spigot
+            // GitHub API failed, try Modrinth next
         }
         
-        // Try Spigot as fallback
-        return getLatestVersionFromSpigot();
+        return null;
+    }
+    
+    /**
+     * Get the latest version from Modrinth
+     */
+    private String getLatestVersionFromModrinth() {
+        if (modrinthProject == null || modrinthProject.isEmpty()) {
+            return null;
+        }
+        try {
+            Request request = new Request.Builder()
+                .url("https://api.modrinth.com/v2/project/" + modrinthProject + "/version")
+                .header("User-Agent", userAgent())
+                .build();
+            
+            try (Response response = httpClient.newCall(request).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    String json = response.body().string();
+                    com.google.gson.JsonArray versions = JsonParser.parseString(json).getAsJsonArray();
+                    String fallback = null;
+                    for (com.google.gson.JsonElement element : versions) {
+                        JsonObject version = element.getAsJsonObject();
+                        if (!version.has("version_number")) {
+                            continue;
+                        }
+                        String number = version.get("version_number").getAsString();
+                        String type = version.has("version_type") ? version.get("version_type").getAsString() : "";
+                        if ("release".equalsIgnoreCase(type)) {
+                            return cleanVersion(number);
+                        }
+                        if (fallback == null) {
+                            fallback = cleanVersion(number);
+                        }
+                    }
+                    return fallback;
+                }
+            }
+        } catch (Exception e) {
+            // Modrinth API failed, try Spigot next
+        }
+        
+        return null;
+    }
+    
+    private String userAgent() {
+        return "XDiscordUltimate/" + currentVersion + " (github.com/XreatLabs/XDiscordUltimate)";
+    }
+    
+    private String cleanVersion(String version) {
+        if (version == null) {
+            return null;
+        }
+        version = version.trim();
+        // Remove 'v' prefix if present
+        if (version.startsWith("v") || version.startsWith("V")) {
+            version = version.substring(1);
+        }
+        return version;
     }
     
     /**
      * Get the latest version from Spigot (fallback)
      */
     private String getLatestVersionFromSpigot() {
+        if (spigotResourceId < 1000) {
+            return null;
+        }
         try {
             Request request = new Request.Builder()
-                .url(SPIGOT_API_URL)
+                .url("https://api.spigotmc.org/legacy/update.php?resource=" + spigotResourceId)
+                .header("User-Agent", userAgent())
                 .build();
             
             try (Response response = httpClient.newCall(request).execute()) {

@@ -8,6 +8,7 @@ import org.bukkit.Bukkit;
 
 import java.util.Arrays;
 import java.util.List;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ServerControlModule extends Module {
     
@@ -129,7 +130,7 @@ public class ServerControlModule extends Module {
         placeholders.put("%time%", "30");
         plugin.getMessageManager().broadcast("server-control.restart-scheduled", placeholders);
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        SchedulerCompat.runTaskLater(plugin, () -> {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "restart");
         }, 600L);
     }
@@ -139,7 +140,7 @@ public class ServerControlModule extends Module {
 
         plugin.getMessageManager().broadcast("server-control.stopping");
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        SchedulerCompat.runTaskLater(plugin, () -> {
             Bukkit.shutdown();
         }, 100L);
     }
@@ -153,7 +154,7 @@ public class ServerControlModule extends Module {
         String playerName = args[1];
         String reason = args.length > 2 ? String.join(" ", Arrays.copyOfRange(args, 2, args.length)) : "Kicked by Discord admin";
         
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             org.bukkit.entity.Player player = Bukkit.getPlayer(playerName);
             if (player != null) {
                 player.kickPlayer(reason);

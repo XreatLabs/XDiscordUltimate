@@ -18,6 +18,7 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.EnumSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class DiscordManager {
 
@@ -193,7 +194,7 @@ public class DiscordManager {
             }
             
             return true;
-        }, command -> Bukkit.getScheduler().runTask(plugin, command));
+        }, command -> SchedulerCompat.runTask(plugin, command));
     }
     
     /**
@@ -203,7 +204,7 @@ public class DiscordManager {
         if (statusTask != null) {
             statusTask.cancel();
         }
-        statusTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        statusTask = SchedulerCompat.runTaskTimerAsync(plugin, () -> {
             updateActivity();
         }, 1200L, 1200L); // Every 60 seconds
     }

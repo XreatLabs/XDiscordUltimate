@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.commands;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.moderation.ModerationModule;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.bukkit.Bukkit;
@@ -11,7 +12,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-import java.awt.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -157,7 +157,7 @@ public class ReportCommand implements CommandExecutor, TabCompleter {
         String targetDiscordId = plugin.getAdminUtils().getDiscordId(target);
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.ORANGE)
+            .setColor(EmbedUtils.WARNING)
             .setTitle("🚨 Player Report #" + reportId)
             .addField("Reporter",
                 reporter.getName() + (reporterDiscordId != null ? " (<@" + reporterDiscordId + ">)" : ""),

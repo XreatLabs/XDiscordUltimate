@@ -14,6 +14,7 @@ import java.awt.*;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.stream.Collectors;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ServerStatusModule extends Module {
 
@@ -74,7 +75,7 @@ public class ServerStatusModule extends Module {
             updateTask.cancel();
         }
 
-        updateTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        updateTask = SchedulerCompat.runTaskTimerAsync(plugin, () -> {
             updateStatusEmbed();
         }, 20L, updateInterval * 20L);
 
@@ -191,6 +192,6 @@ public class ServerStatusModule extends Module {
     }
 
     public void forceUpdate() {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, this::updateStatusEmbed);
+        SchedulerCompat.runTaskAsync(plugin, this::updateStatusEmbed);
     }
 }

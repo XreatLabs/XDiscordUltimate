@@ -28,6 +28,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 
 import java.awt.*;
+import java.io.File;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -37,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ModerationModule extends Module implements Listener {
     
@@ -58,6 +60,10 @@ public class ModerationModule extends Module implements Listener {
     
     // Moderation history
     private final Map<UUID, List<ModerationAction>> playerHistory = new ConcurrentHashMap<>();
+
+    // Synced mutes (Discord timeout / muted role -> Minecraft chat)
+    private final Set<UUID> mutedPlayers = ConcurrentHashMap.newKeySet();
+    private java.io.File mutesFile;
     
     public ModerationModule(XDiscordUltimate plugin) {
         super(plugin);
@@ -76,6 +82,8 @@ public class ModerationModule extends Module implements Listener {
     @Override
     protected void onEnable() {
         loadConfiguration();
+        loadMutes();
+        loadModerationHistory();
         
         // Register Bukkit events
         Bukkit.getPluginManager().registerEvents(this, plugin);
@@ -102,6 +110,7 @@ public class ModerationModule extends Module implements Listener {
         
         // Save moderation history
         saveModerationHistory();
+        saveMutes();
         
         info("Moderation module disabled");
     }
@@ -112,10 +121,10 @@ public class ModerationModule extends Module implements Listener {
         if (config != null) {
             moderationLogChannel = config.getString("log-channel", "mod-logs");
             syncBans = config.getBoolean("sync-bans", true);
-            syncKicks = false;
-            syncMutes = false;
+            syncKicks = config.getBoolean("sync-kicks", false);
+            syncMutes = config.getBoolean("sync-mutes", false);
             logCommands = config.getBoolean("auto-moderate", true);
-            mutedRole = "Muted";
+            mutedRole = config.getString("muted-role", "Muted");
         } else {
             warning("Config section not found, using defaults");
             moderationLogChannel = "mod-logs";
@@ -181,7 +190,7 @@ public class ModerationModule extends Module implements Listener {
         final String finalReason = reason;
         
         // Schedule check for next tick to see if ban was successful
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        SchedulerCompat.runTaskLater(plugin, () -> {
             OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
             
             if (Bukkit.getBanList(BanList.Type.NAME).isBanned(targetName)) {
@@ -402,7 +411,7 @@ public class ModerationModule extends Module implements Listener {
             }
 
             // Ban in Minecraft
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            SchedulerCompat.runTask(plugin, () -> {
                 Bukkit.getBanList(BanList.Type.NAME).addBan(
                     player.getName(),
                     "Discord Ban Sync",
@@ -443,24 +452,15 @@ public class ModerationModule extends Module implements Listener {
             
             if (timeoutEnd != null && timeoutEnd.isAfter(OffsetDateTime.now())) {
                 // Muted
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    // Add to muted players (implementation depends on your mute system)
-                    player.sendMessage(ColorUtils.parse("<gradient:#FF5555:#AA0000>🔇 Muted!</gradient> &7You have been muted in Discord and Minecraft"));
-                    
-                    // Log
-                    Duration duration = Duration.between(OffsetDateTime.now(), timeoutEnd);
-                    logDiscordModerationAction("TIMEOUT", member.getUser(), 
-                        "Discord timeout synced to Minecraft (Duration: " + formatDuration(duration) + ")");
-                });
+                mutePlayer(minecraftUuid);
+                Duration duration = Duration.between(OffsetDateTime.now(), timeoutEnd);
+                logDiscordModerationAction("TIMEOUT", member.getUser(),
+                    "Discord timeout synced to Minecraft (Duration: " + formatDuration(duration) + ")");
             } else {
                 // Unmuted
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    player.sendMessage(ColorUtils.parse("<gradient:#55FF55:#00AA00>🔊 Unmuted!</gradient> &7You have been unmuted"));
-                    
-                    // Log
-                    logDiscordModerationAction("UNTIMEOUT", member.getUser(), 
-                        "Discord timeout removed");
-                });
+                unmutePlayer(minecraftUuid);
+                logDiscordModerationAction("UNTIMEOUT", member.getUser(),
+                    "Discord timeout removed");
             }
         }
         
@@ -477,16 +477,9 @@ public class ModerationModule extends Module implements Listener {
                     UUID minecraftUuid = plugin.getDatabaseManager().getMinecraftUuidSync(event.getMember().getId());
 
                     if (minecraftUuid != null) {
-                        Player player = Bukkit.getPlayer(minecraftUuid);
-                        if (player != null) {
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                player.sendMessage(ColorUtils.parse("<gradient:#FF5555:#AA0000>🔇 Muted!</gradient> &7You have been muted"));
-                                // Add to your mute system
-                                
-                                logDiscordModerationAction("MUTE", event.getUser(), 
-                                    "Discord mute role synced to Minecraft");
-                            });
-                        }
+                        mutePlayer(minecraftUuid);
+                        logDiscordModerationAction("MUTE", event.getUser(),
+                            "Discord mute role synced to Minecraft");
                     }
                 });
         }
@@ -504,21 +497,93 @@ public class ModerationModule extends Module implements Listener {
                     UUID minecraftUuid = plugin.getDatabaseManager().getMinecraftUuidSync(event.getMember().getId());
 
                     if (minecraftUuid != null) {
-                        Player player = Bukkit.getPlayer(minecraftUuid);
-                        if (player != null) {
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                player.sendMessage(ColorUtils.parse("<gradient:#55FF55:#00AA00>🔊 Unmuted!</gradient> &7You have been unmuted"));
-                                // Remove from your mute system
-                                
-                                logDiscordModerationAction("UNMUTE", event.getUser(), 
-                                    "Discord unmute synced to Minecraft");
-                            });
-                        }
+                        unmutePlayer(minecraftUuid);
+                        logDiscordModerationAction("UNMUTE", event.getUser(),
+                            "Discord unmute synced to Minecraft");
                     }
                 });
         }
     }
     
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onAsyncChat(org.bukkit.event.player.AsyncPlayerChatEvent event) {
+        if (!syncMutes) return;
+        if (!mutedPlayers.contains(event.getPlayer().getUniqueId())) return;
+        event.setCancelled(true);
+        event.getPlayer().sendMessage(ColorUtils.parse(
+            "<gradient:#FF5555:#AA0000>Muted!</gradient> &7You are muted. Wait for staff to unmute you."));
+    }
+
+    @EventHandler
+    public void onMutedPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        if (!syncMutes) return;
+        if (!mutedPlayers.contains(event.getPlayer().getUniqueId())) return;
+        event.getPlayer().sendMessage(ColorUtils.parse(
+            "<gradient:#FF5555:#AA0000>Muted!</gradient> &7You are currently muted."));
+    }
+
+    private void mutePlayer(UUID uuid) {
+        if (uuid == null) return;
+        if (mutedPlayers.add(uuid)) {
+            saveMutes();
+        }
+        Player online = Bukkit.getPlayer(uuid);
+        if (online != null) {
+            SchedulerCompat.runTask(plugin, () -> online.sendMessage(
+                ColorUtils.parse("<gradient:#FF5555:#AA0000>Muted!</gradient> &7You have been muted in Discord and Minecraft")));
+        }
+    }
+
+    private void unmutePlayer(UUID uuid) {
+        if (uuid == null) return;
+        if (mutedPlayers.remove(uuid)) {
+            saveMutes();
+        }
+        Player online = Bukkit.getPlayer(uuid);
+        if (online != null) {
+            SchedulerCompat.runTask(plugin, () -> online.sendMessage(
+                ColorUtils.parse("<gradient:#55FF55:#00AA00>Unmuted!</gradient> &7You have been unmuted")));
+        }
+    }
+
+    public boolean isPlayerMuted(UUID uuid) {
+        return mutedPlayers.contains(uuid);
+    }
+
+    private void loadMutes() {
+        mutesFile = new java.io.File(plugin.getDataFolder(), "moderation-mutes.yml");
+        if (!mutesFile.exists()) return;
+        try {
+            org.bukkit.configuration.file.YamlConfiguration data =
+                org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(mutesFile);
+            mutedPlayers.clear();
+            for (String id : data.getStringList("muted")) {
+                try {
+                    mutedPlayers.add(UUID.fromString(id));
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        } catch (Exception e) {
+            warning("Could not load moderation-mutes.yml: " + e.getMessage());
+        }
+    }
+
+    private void saveMutes() {
+        if (mutesFile == null) return;
+        try {
+            org.bukkit.configuration.file.YamlConfiguration data =
+                new org.bukkit.configuration.file.YamlConfiguration();
+            java.util.List<String> ids = new ArrayList<>();
+            for (UUID uuid : mutedPlayers) {
+                ids.add(uuid.toString());
+            }
+            data.set("muted", ids);
+            data.save(mutesFile);
+        } catch (Exception e) {
+            warning("Could not save moderation-mutes.yml: " + e.getMessage());
+        }
+    }
+
     private void logDiscordModerationAction(String action, User user, String description) {
         TextChannel logChannel = getLogChannel();
         if (logChannel == null) return;
@@ -615,8 +680,90 @@ public class ModerationModule extends Module implements Listener {
             .collect(ArrayList::new, (list, action) -> list.add(action), ArrayList::addAll);
     }
     
+    private void loadModerationHistory() {
+        File historyFile = new File(plugin.getDataFolder(), "moderation-history.yml");
+        if (!historyFile.exists()) return;
+        try {
+            org.bukkit.configuration.file.YamlConfiguration data =
+                org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(historyFile);
+            playerHistory.clear();
+            for (String key : data.getKeys(false)) {
+                try {
+                    UUID playerId = UUID.fromString(key);
+                    List<ModerationAction> actions = new ArrayList<>();
+                    for (String entry : data.getStringList(key)) {
+                        String[] parts = entry.split("\\|", -1);
+                        if (parts.length < 5) continue;
+                        long timestamp = 0L;
+                        long durationSeconds = 0L;
+                        try {
+                            timestamp = Long.parseLong(parts[3]);
+                        } catch (NumberFormatException ignored) {
+                        }
+                        try {
+                            durationSeconds = Long.parseLong(parts[4]);
+                        } catch (NumberFormatException ignored) {
+                        }
+                        actions.add(new ModerationAction(parts[0], parts[1], parts[2], timestamp,
+                            durationSeconds > 0 ? Duration.ofSeconds(durationSeconds) : null));
+                    }
+                    playerHistory.put(playerId, actions);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        } catch (Exception e) {
+            warning("Could not load moderation-history.yml: " + e.getMessage());
+        }
+    }
+
     private void saveModerationHistory() {
-        // TODO: Save to database
+        try {
+            org.bukkit.configuration.file.YamlConfiguration data =
+                new org.bukkit.configuration.file.YamlConfiguration();
+            for (Map.Entry<UUID, List<ModerationAction>> entry : playerHistory.entrySet()) {
+                List<String> serialized = new ArrayList<>();
+                for (ModerationAction action : entry.getValue()) {
+                    serialized.add(action.type + "|"
+                        + (action.moderator == null ? "" : action.moderator.replace("|", "/")) + "|"
+                        + (action.reason == null ? "" : action.reason.replace("|", "/")) + "|"
+                        + action.timestamp + "|"
+                        + (action.duration != null ? action.duration.getSeconds() : 0L));
+                }
+                data.set(entry.getKey().toString(), serialized);
+            }
+            File historyFile = new File(plugin.getDataFolder(), "moderation-history.yml");
+            data.save(historyFile);
+        } catch (Exception e) {
+            warning("Could not save moderation-history.yml: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Log an auto-moderation action (chat filter, spam guard) to the configured Discord channel.
+     */
+    public void logAutoModerationAction(Player player, String action, String message) {
+        String channelName = getConfig().getString("log-channel", "mod-logs");
+        if (channelName == null || channelName.isEmpty()) return;
+        com.xreatlabs.xdiscordultimate.utils.SchedulerCompat.runTask(plugin, () -> {
+            try {
+                net.dv8tion.jda.api.entities.Guild guild = plugin.getDiscordManager().getMainGuild();
+                if (guild == null) return;
+                net.dv8tion.jda.api.entities.channel.concrete.TextChannel channel =
+                    guild.getTextChannelsByName(channelName, true).stream().findFirst().orElse(null);
+                if (channel == null) {
+                    channel = guild.getTextChannelById(channelName);
+                }
+                if (channel == null) return;
+                net.dv8tion.jda.api.EmbedBuilder embed = new net.dv8tion.jda.api.EmbedBuilder()
+                    .setTitle("Auto-Moderation: " + action)
+                    .setDescription(message)
+                    .setColor(com.xreatlabs.xdiscordultimate.utils.EmbedUtils.WARNING)
+                    .setFooter(player.getName())
+                    .setTimestamp(java.time.Instant.now());
+                channel.sendMessageEmbeds(embed.build()).queue();
+            } catch (Throwable ignored) {
+            }
+        });
     }
     
     /**
@@ -630,6 +777,10 @@ public class ModerationModule extends Module implements Listener {
      * Check if a player is muted
      */
     public boolean isPlayerMuted(Player player) {
+        if (mutedPlayers.contains(player.getUniqueId())) {
+            return true;
+        }
+
         // Synchronous lookup: this is called from sync contexts (commands/placeholders) that must
         // return a value immediately. The database lookup is bounded and does not use .join().
         String discordId = plugin.getDatabaseManager().getDiscordIdSync(player.getUniqueId());

@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.modules.botconsole;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Message;
@@ -25,7 +26,6 @@ import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 
-import java.awt.*;
 import java.io.*;
 import java.time.Instant;
 import java.util.*;
@@ -34,6 +34,7 @@ import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class BotConsoleModule extends Module {
     
@@ -594,7 +595,7 @@ public class BotConsoleModule extends Module {
             final String userId = event.getUser().getId();
             
             // Execute the command on the main thread
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            SchedulerCompat.runTask(plugin, () -> {
                 try {
                     // Capture console output
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -859,7 +860,7 @@ public class BotConsoleModule extends Module {
         }
 
         // Execute command
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             try {
                 // Capture output
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -902,7 +903,7 @@ public class BotConsoleModule extends Module {
         }
 
         // Execute command
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             try {
                 // Capture output
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -980,7 +981,7 @@ public class BotConsoleModule extends Module {
         String status = tps >= 19 ? "🟢" : tps >= 15 ? "🟡" : "🔴";
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(tps >= 19 ? Color.GREEN : tps >= 15 ? Color.YELLOW : Color.RED)
+            .setColor(tps >= 19 ? EmbedUtils.SUCCESS : tps >= 15 ? EmbedUtils.WARNING : EmbedUtils.ERROR)
             .setTitle("Server Performance")
             .addField("TPS", status + " " + String.format("%.2f", tps) + "/20.0", true)
             .addField("MSPT", String.format("%.2f", 1000.0 / tps) + "ms", true)
@@ -994,7 +995,7 @@ public class BotConsoleModule extends Module {
         String status = tps >= 19 ? "🟢" : tps >= 15 ? "🟡" : "🔴";
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(tps >= 19 ? Color.GREEN : tps >= 15 ? Color.YELLOW : Color.RED)
+            .setColor(tps >= 19 ? EmbedUtils.SUCCESS : tps >= 15 ? EmbedUtils.WARNING : EmbedUtils.ERROR)
             .setTitle("Server Performance")
             .addField("TPS", status + " " + String.format("%.2f", tps) + "/20.0", true)
             .addField("MSPT", String.format("%.2f", 1000.0 / tps) + "ms", true)
@@ -1014,7 +1015,7 @@ public class BotConsoleModule extends Module {
         String status = usagePercent < 60 ? "🟢" : usagePercent < 80 ? "🟡" : "🔴";
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(usagePercent < 60 ? Color.GREEN : usagePercent < 80 ? Color.YELLOW : Color.RED)
+            .setColor(usagePercent < 60 ? EmbedUtils.SUCCESS : usagePercent < 80 ? EmbedUtils.WARNING : EmbedUtils.ERROR)
             .setTitle("Memory Usage")
             .addField("Used", status + " " + usedMemory + " MB (" + String.format("%.1f", usagePercent) + "%)", true)
             .addField("Allocated", totalMemory + " MB", true)
@@ -1035,7 +1036,7 @@ public class BotConsoleModule extends Module {
         String status = usagePercent < 60 ? "🟢" : usagePercent < 80 ? "🟡" : "🔴";
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(usagePercent < 60 ? Color.GREEN : usagePercent < 80 ? Color.YELLOW : Color.RED)
+            .setColor(usagePercent < 60 ? EmbedUtils.SUCCESS : usagePercent < 80 ? EmbedUtils.WARNING : EmbedUtils.ERROR)
             .setTitle("Memory Usage")
             .addField("Used", status + " " + usedMemory + " MB (" + String.format("%.1f", usagePercent) + "%)", true)
             .addField("Allocated", totalMemory + " MB", true)
@@ -1049,7 +1050,7 @@ public class BotConsoleModule extends Module {
         Collection<? extends org.bukkit.entity.Player> players = Bukkit.getOnlinePlayers();
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.BLUE)
+            .setColor(EmbedUtils.BRAND_PRIMARY)
             .setTitle("Online Players")
             .setDescription("**" + players.size() + "/" + Bukkit.getMaxPlayers() + " players online**")
             .setTimestamp(Instant.now());
@@ -1069,7 +1070,7 @@ public class BotConsoleModule extends Module {
         Collection<? extends org.bukkit.entity.Player> players = Bukkit.getOnlinePlayers();
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.BLUE)
+            .setColor(EmbedUtils.BRAND_PRIMARY)
             .setTitle("Online Players")
             .setDescription("**" + players.size() + "/" + Bukkit.getMaxPlayers() + " players online**")
             .setTimestamp(Instant.now());
@@ -1092,7 +1093,7 @@ public class BotConsoleModule extends Module {
             .collect(Collectors.partitioningBy(org.bukkit.plugin.Plugin::isEnabled));
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.CYAN)
+            .setColor(EmbedUtils.INFO)
             .setTitle("Plugin List")
             .setDescription("**" + plugins.length + " plugins loaded**")
             .setTimestamp(Instant.now());
@@ -1121,7 +1122,7 @@ public class BotConsoleModule extends Module {
             .collect(Collectors.partitioningBy(org.bukkit.plugin.Plugin::isEnabled));
         
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.CYAN)
+            .setColor(EmbedUtils.INFO)
             .setTitle("Plugin List")
             .setDescription("**" + plugins.length + " plugins loaded**")
             .setTimestamp(Instant.now());
@@ -1222,7 +1223,7 @@ public class BotConsoleModule extends Module {
     
     private void sendHelpMessage(MessageReceivedEvent event) {
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.BLUE)
+            .setColor(EmbedUtils.BRAND_PRIMARY)
             .setTitle("📚 Bot Console Commands")
             .setDescription("All commands support both `!` and `/` prefixes")
             .addField("🔧 Utility Commands",
@@ -1279,7 +1280,7 @@ public class BotConsoleModule extends Module {
     
     private void sendHelpMessageSlash(SlashCommandInteractionEvent event) {
         EmbedBuilder embed = new EmbedBuilder()
-            .setColor(Color.BLUE)
+            .setColor(EmbedUtils.BRAND_PRIMARY)
             .setTitle("Console Commands")
             .setDescription("Execute server commands from Discord.")
             .addField("`/console <command>`",

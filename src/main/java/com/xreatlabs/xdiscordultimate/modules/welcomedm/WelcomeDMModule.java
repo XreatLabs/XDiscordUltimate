@@ -13,7 +13,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 
-import java.awt.*;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -238,20 +237,19 @@ public class WelcomeDMModule extends Module implements Listener {
         embed.setTitle(replacePlaceholders(embedTitle, player, user));
         embed.setDescription(replacePlaceholders(embedDescription, player, user));
 
+        embed.setColor(plugin.getEmbedUtils().parseColor(embedColor));
+
         try {
-            embed.setColor(Color.decode(embedColor));
-        } catch (NumberFormatException e) {
-            embed.setColor(new Color(85, 255, 255));
-        }
+            String thumbnail = replacePlaceholders(embedThumbnail, player, user);
+            if (!thumbnail.isEmpty()) {
+                embed.setThumbnail(thumbnail);
+            }
 
-        String thumbnail = replacePlaceholders(embedThumbnail, player, user);
-        if (!thumbnail.isEmpty()) {
-            embed.setThumbnail(thumbnail);
-        }
-
-        String image = replacePlaceholders(embedImage, player, user);
-        if (!image.isEmpty()) {
-            embed.setImage(image);
+            String image = replacePlaceholders(embedImage, player, user);
+            if (!image.isEmpty()) {
+                embed.setImage(image);
+            }
+        } catch (IllegalArgumentException ignored) {
         }
 
         for (String field : embedFields) {
@@ -285,8 +283,8 @@ public class WelcomeDMModule extends Module implements Listener {
             .replace("%player%", player.getName())
             .replace("%player_name%", player.getName())
             .replace("%player_uuid%", player.getUniqueId().toString())
-            .replace("%player_head%", "https://crafatar.com/avatars/" + player.getUniqueId() + "?overlay=true")
-            .replace("%player_body%", "https://crafatar.com/renders/body/" + player.getUniqueId() + "?overlay=true")
+            .replace("%player_head%", "https://minotar.net/helm/" + player.getUniqueId() + "/128.png")
+            .replace("%player_body%", "https://minotar.net/armor/body/" + player.getUniqueId() + "/128.png")
             .replace("%discord_name%", user.getName())
             .replace("%discord_id%", user.getId())
             .replace("%discord_mention%", user.getAsMention())

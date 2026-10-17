@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>Lỗi!</gradient> &7Không thể gửi yêu cầu danh sách trắng.
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>Thành công!</gradient> &7Tài khoản của bạn hiện đã được liên kết với Discord!
   ticket-created: <gradient:#55FF55:#55FFFF>Đã tạo vé!</gradient> &7Kiểm tra Discord để cập nhật.

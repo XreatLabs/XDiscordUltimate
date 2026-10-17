@@ -9,16 +9,14 @@ import org.bukkit.entity.Player;
 import java.awt.Color;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class EmbedUtils {
 
     private final XDiscordUltimate plugin;
     private final Map<String, Color> colorMap;
-    private final Pattern hexPattern;
 
     // Modern color palette - muted and professional
     public static final Color BRAND_PRIMARY = new Color(0, 123, 255);     // Professional blue
@@ -29,11 +27,11 @@ public class EmbedUtils {
     public static final Color INFO = new Color(23, 162, 184);            // Cyan
     public static final Color PREMIUM = new Color(255, 193, 7);           // Gold
     public static final Color DISCORD = new Color(88, 101, 242);          // Blurple
-    
+    private static final Color FALLBACK = new Color(88, 101, 242);        // Blurple
+
     public EmbedUtils(XDiscordUltimate plugin) {
         this.plugin = plugin;
         this.colorMap = initializeColorMap();
-        this.hexPattern = Pattern.compile("#[a-fA-F0-9]{6}");
     }
 
     /**
@@ -47,7 +45,7 @@ public class EmbedUtils {
      * Get player avatar URL from UUID string
      */
     public static String getPlayerAvatarUrl(String uuid) {
-        return "https://cravatar.eu/helm/" + uuid + "/64.png";
+        return "https://minotar.net/helm/" + uuid + "/64.png";
     }
 
     /**
@@ -219,7 +217,7 @@ public class EmbedUtils {
         embed.setColor(color);
         
         // Set author as player
-        String avatarUrl = "https://crafatar.com/avatars/" + player.getUniqueId() + "?overlay";
+        String avatarUrl = getPlayerAvatarUrl(player.getUniqueId());
         embed.setAuthor(player.getName(), null, avatarUrl);
         
         // Set description
@@ -239,6 +237,7 @@ public class EmbedUtils {
         
         embed.setTimestamp(Instant.now());
         
+        applyStyle("event", embed);
         return embed.build();
     }
     
@@ -250,10 +249,10 @@ public class EmbedUtils {
         
         embed.setTitle("📢 " + title);
         embed.setDescription(message);
-        embed.setColor(new Color(255, 215, 0)); // Gold color
+        embed.setColor(PREMIUM);
         
         if (author != null) {
-            String avatarUrl = "https://crafatar.com/avatars/" + author.getUniqueId() + "?overlay";
+            String avatarUrl = getPlayerAvatarUrl(author.getUniqueId());
             embed.setAuthor(author.getName(), null, avatarUrl);
         }
         
@@ -270,7 +269,7 @@ public class EmbedUtils {
         EmbedBuilder embed = new EmbedBuilder();
         
         embed.setTitle("Server Status");
-        embed.setColor(Color.GREEN);
+        embed.setColor(SUCCESS);
         
         // Server info
         embed.addField("Players", plugin.getServer().getOnlinePlayers().size() + "/" + 
@@ -285,6 +284,7 @@ public class EmbedUtils {
         
         embed.setTimestamp(Instant.now());
         embed.setFooter("Server: " + plugin.getServer().getName(), null);
+        applyStyle("server-status", embed);
         
         return embed.build();
     }
@@ -303,7 +303,7 @@ public class EmbedUtils {
         
         // Moderator info
         if (moderator != null) {
-            String avatarUrl = "https://crafatar.com/avatars/" + moderator.getUniqueId() + "?overlay";
+            String avatarUrl = getPlayerAvatarUrl(moderator.getUniqueId());
             embed.setAuthor(moderator.getName(), null, avatarUrl);
         }
         
@@ -327,35 +327,71 @@ public class EmbedUtils {
      * Parse color from string (supports hex and color names)
      */
     public Color parseColor(String colorStr) {
-        if (colorStr == null || colorStr.isEmpty()) {
-            return getDefaultColor();
+        return parseColor(colorStr, getDefaultColor());
+    }
+
+    /**
+     * Parse color from string, falling back when the value is missing or invalid
+     */
+    public Color parseColor(String colorStr, Color fallback) {
+        if (colorStr == null || colorStr.trim().isEmpty()) {
+            return fallback;
         }
-        
-        // Check for hex color
-        Matcher matcher = hexPattern.matcher(colorStr);
-        if (matcher.matches()) {
-            return Color.decode(colorStr);
+
+        String value = colorStr.trim().toLowerCase(Locale.ROOT);
+
+        // #RGB, #RRGGBB, 0xRRGGBB or bare RRGGBB
+        Color hex = parseHex(value);
+        if (hex != null) {
+            return hex;
         }
-        
+
         // Check for named color
-        Color namedColor = colorMap.get(colorStr.toLowerCase());
+        Color namedColor = colorMap.get(value);
         if (namedColor != null) {
             return namedColor;
         }
-        
+
         // Try to parse as RGB
-        String[] parts = colorStr.split(",");
+        String[] parts = value.split(",");
         if (parts.length == 3) {
             try {
-                int r = Integer.parseInt(parts[0].trim());
-                int g = Integer.parseInt(parts[1].trim());
-                int b = Integer.parseInt(parts[2].trim());
+                int r = clamp(Integer.parseInt(parts[0].trim()));
+                int g = clamp(Integer.parseInt(parts[1].trim()));
+                int b = clamp(Integer.parseInt(parts[2].trim()));
                 return new Color(r, g, b);
             } catch (NumberFormatException ignored) {
             }
         }
-        
-        return getDefaultColor();
+
+        return fallback;
+    }
+
+    private static Color parseHex(String value) {
+        if (value.startsWith("#")) {
+            value = value.substring(1);
+        } else if (value.startsWith("0x")) {
+            value = value.substring(2);
+        } else if (value.length() != 6) {
+            return null;
+        }
+
+        if (value.length() == 3) {
+            value = new StringBuilder()
+                .append(value.charAt(0)).append(value.charAt(0))
+                .append(value.charAt(1)).append(value.charAt(1))
+                .append(value.charAt(2)).append(value.charAt(2))
+                .toString();
+        }
+
+        if (!value.matches("[0-9a-f]{6}")) {
+            return null;
+        }
+        return new Color(Integer.parseInt(value, 16));
+    }
+
+    private static int clamp(int value) {
+        return Math.max(0, Math.min(255, value));
     }
     
     /**
@@ -370,7 +406,16 @@ public class EmbedUtils {
      */
     private Color getDefaultColor() {
         String colorStr = plugin.getConfig().getString("messages.embed-color", "#5865F2");
-        return parseColor(colorStr);
+        if (colorStr == null) {
+            return FALLBACK;
+        }
+        String value = colorStr.trim().toLowerCase(Locale.ROOT);
+        Color hex = parseHex(value);
+        if (hex != null) {
+            return hex;
+        }
+        Color named = colorMap.get(value);
+        return named != null ? named : FALLBACK;
     }
     
     /**
@@ -379,15 +424,15 @@ public class EmbedUtils {
     private Color getEventColor(String eventType) {
         switch (eventType.toLowerCase()) {
             case "join":
-                return Color.GREEN;
+                return SUCCESS;
             case "leave":
-                return Color.RED;
+                return ERROR;
             case "death":
-                return Color.DARK_GRAY;
+                return BRAND_SECONDARY;
             case "advancement":
-                return Color.YELLOW;
+                return INFO;
             case "milestone":
-                return new Color(255, 215, 0); // Gold color
+                return PREMIUM;
             default:
                 return getDefaultColor();
         }
@@ -409,6 +454,37 @@ public class EmbedUtils {
         return plugin.getConfig().getString(defaultPath, "");
     }
     
+    /**
+     * Apply per-embed overrides from messages.embeds.<id> in config.yml.
+     * Missing keys keep the module default.
+     */
+    public void applyStyle(String id, EmbedBuilder embed) {
+        if (id == null || embed == null || plugin == null) return;
+        org.bukkit.configuration.ConfigurationSection section =
+            plugin.getConfig().getConfigurationSection("messages.embeds." + id);
+        if (section == null) return;
+
+        String title = section.getString("title");
+        if (title != null && !title.isEmpty()) {
+            embed.setTitle(title);
+        }
+        String footer = section.getString("footer");
+        if (footer != null && !footer.isEmpty()) {
+            embed.setFooter(footer, null);
+        }
+        String color = section.getString("color");
+        if (color != null && !color.isEmpty()) {
+            embed.setColor(parseColor(color));
+        }
+        String thumbnail = section.getString("thumbnail");
+        if (thumbnail != null && !thumbnail.isEmpty()) {
+            try {
+                embed.setThumbnail(thumbnail);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+    }
+
     /**
      * Format player location
      */

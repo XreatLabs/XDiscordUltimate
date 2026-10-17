@@ -35,6 +35,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class VerificationModule extends Module {
     
@@ -349,7 +350,7 @@ public class VerificationModule extends Module {
         ).thenAccept(success -> {
             if (success) {
                 // Run on main thread
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                SchedulerCompat.runTask(plugin, () -> {
                     plugin.getMessageManager().sendMessage(player, "verification.success");
                     player.sendMessage(plugin.getMessageManager().colorize("<gradient:#55FF55:#00AA00>Your account has been linked to Discord user</gradient> &e" + pending.discordName + " &a!"));
                     
@@ -360,6 +361,16 @@ public class VerificationModule extends Module {
                     
                     // Add Discord role
                     addDiscordRole(pending.discordId);
+
+                    // Vault reward
+                    if (plugin.getConfig().getBoolean("integrations.vault-reward.enabled", false)) {
+                        double amount = plugin.getConfig().getDouble("integrations.vault-reward.amount", 100.0);
+                        if (com.xreatlabs.xdiscordultimate.integrations.VaultRewards.deposit(player, amount)) {
+                            player.sendMessage(plugin.getMessageManager().colorize(
+                                "&7Verification reward: &a+" + amount + " &7(" 
+                                    + com.xreatlabs.xdiscordultimate.integrations.VaultRewards.providerName() + ")"));
+                        }
+                    }
 
                     // Sync Discord nickname to Minecraft name (also updates DB)
                     syncDiscordNickname(pending.discordId, player.getName());

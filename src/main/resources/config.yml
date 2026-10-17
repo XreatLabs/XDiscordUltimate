@@ -1,5 +1,5 @@
 # XDiscordUltimate Configuration
-# Version: 1.1.0 | Supports: Minecraft 1.16.5 - 1.21.x
+# Version: 1.1.0 | Supports: Minecraft 1.16.5 - 26.x
 # Docs: https://github.com/xreatlabs/xdiscordultimate/wiki
 #
 # Discord IDs: Enable Developer Mode in Discord Settings (User Settings > Advanced > Developer Mode), then right-click any channel/role/user and select "Copy ID"
@@ -12,6 +12,10 @@ general:
   default-language: "en_US"
   language: "en_US"
   check-updates: true
+  # Spigot resource ID used for update checks (0 = disabled)
+  spigot-resource-id: 127923
+  # Modrinth project slug or ID for update checks ("" = disabled)
+  modrinth-project: "xdiscordultimate"
 
 features:
   chat-bridge:
@@ -21,6 +25,9 @@ features:
     minecraft-to-discord: true
     discord-to-minecraft: true
     filter-bot-messages: true
+    # Relay Discord attachments into Minecraft chat, optionally with their URL
+    relay-attachments: true
+    show-attachment-links: true
     # - crafthead: Most reliable, works with offline-mode names
     skin-provider: "crafthead"
     auto-create-webhook: true
@@ -99,19 +106,143 @@ features:
   tickets:
     enabled: true
     ticket-category: "Support Tickets"
+    # Channel where the ticket panel lives (name or channel ID)
     ticket-panel-channel: "ticket-logs"
+    # Channel where transcripts are uploaded (name or channel ID)
     transcript-channel: "ticket-logs"
     support-role: "Support"
     max-open-tickets: 3
     auto-close-hours: 48
     auto-close-warning-enabled: true
     auto-close-warning-minutes: 60
+    # Allow the ticket creator to close their own ticket
     player-close: true
+    # Save transcripts to disk/database and upload them to the transcript channel
     save-transcript: true
+    # Seconds to wait before deleting a closed ticket channel (0 = keep the channel)
+    close-delete-delay-seconds: 10
+    # Seconds a user must wait between creating tickets (0 = no cooldown)
+    creation-cooldown-seconds: 60
+    # Ask the ticket creator to rate it after closing (DM prompt with 1-5 buttons)
+    feedback-enabled: true
+    # Transcript archive format: text or html
+    transcript-format: text
+    # Optional per-type open ticket limit, on top of max-open-tickets
+    #max-open-tickets-per-type:
+    #  report: 1
+    #  support: 5
+
+    # Format of the ticket channel name. Placeholders: %id%, %type%, %minecraft%, %user%, %subject%, %priority%
+    channel-name-format: "ticket-%id%"
+    # Format of the ticket channel topic. Same placeholders as above,
+    # plus %status% is appended automatically when claimed.
+    channel-topic-format: "Support ticket for %user% | MC: %minecraft% | Priority: %priority% | Type: %type%"
+
+    # The panel message is edited in place on restart
+    panel:
+      title: "Support Tickets"
+      # Placeholders: %max_tickets%, %auto_close_hours%, %support_role%, %category%, %enabled%
+      description: |-
+        Create a ticket for help from staff.
+
+        • Max %max_tickets% open tickets per user
+        • Tickets close after %auto_close_hours% hours of inactivity
+        • Be respectful to support staff
+      color: "#007BFF"
+      footer: "XDiscordUltimate Tickets"
+      image: ""
+      thumbnail: ""
+      button-label: "Create Ticket"
+      button-emoji: "🎫"
+      button-style: "PRIMARY"
+
+    # Default welcome embed posted inside each ticket channel
+    # Placeholders: %id%, %user%, %minecraft%, %subject%, %priority%, %priority_emoji%,
+    #              %type%, %claimed_by%, %created%, %description%
+    welcome:
+      title: "Ticket #%id% - %priority%"
+      description: |-
+        Welcome %user%!
+
+        **Type:** %type%
+        **Subject:** %subject%
+        **Minecraft:** %minecraft%
+        **Priority:** %priority%
+        %description%
+        A support team member will be with you shortly.
+        Please describe your issue in detail.
+      # Leave empty to color the embed by ticket priority
+      color: ""
+      footer: "XDiscordUltimate Tickets"
+      thumbnail: "https://minotar.net/helm/%minecraft%/64.png"
+      show-info-field: true
+
+    # Labels for the ticket action buttons
+    buttons:
+      close-label: "Close Ticket"
+      close-emoji: "🔒"
+      claim-label: "Claim Ticket"
+      claim-emoji: "✋"
+
+    # Priority display customization (keys: LOW, MEDIUM, HIGH, URGENT)
+    priorities:
+      LOW:
+        label: "LOW"
+        emoji: "🟢"
+        color: "#4CAF50"
+      MEDIUM:
+        label: "MEDIUM"
+        emoji: "🟡"
+        color: "#FFC107"
+      HIGH:
+        label: "HIGH"
+        emoji: "🟠"
+        color: "#FF9800"
+      URGENT:
+        label: "URGENT"
+        emoji: "🔴"
+        color: "#E53935"
+
+    # Optional ticket types. When configured, the panel shows one button per type
+    # (max 5) and each type can use its own category, support role and embed text.
+    # Uncomment to enable. If not set, a single default button is used.
+    #types:
+    #  support:
+    #    label: "General Support"
+    #    emoji: "🎫"
+    #    style: "PRIMARY"
+    #    subject: "General Support"
+    #    category: "Support Tickets"
+    #    support-role: "Support"
+    #    channel-name-format: "ticket-%id%"
+    #    gui-material: "PAPER"
+    #    welcome-title: "Ticket #%id% - %type%"
+    #    welcome-description: |-
+    #      Welcome %user%!
+    #      A support team member will help you shortly.
+    #    # Optional: overrides the welcome embed color
+    #    color: ""
+    #  report:
+    #    label: "Report a Player"
+    #    emoji: "🚨"
+    #    style: "DANGER"
+    #    subject: "Player Report"
+    #    category: "Reports"
+    #    support-role: "Moderator"
+    #    channel-name-format: "report-%id%"
+    #    welcome-title: "Report #%id%"
+    #    welcome-description: |-
+    #      Thanks for the report, %user%.
+    #      **Subject:** %subject%
+    #    color: "#E53935"
 
   moderation:
     enabled: true
     sync-bans: true
+    # Sync Minecraft kicks/mutes to Discord and Discord timeouts/mutes to Minecraft chat
+    sync-kicks: false
+    sync-mutes: false
+    muted-role: "Muted"
     log-channel: "mod-logs"
     auto-moderate: true
     report-cooldown-minutes: 5
@@ -160,6 +291,83 @@ features:
 
   player-stats:
     enabled: true
+    # Parse PlaceholderAPI placeholders (e.g. %player_name%) in stats text
+    use-placeholderapi: true
+    thousands-separator: true
+    kd-decimals: 2
+    # auto = "2d 3h 4m", clock = "51:04", hours = "51.07h", minutes = "3064m"
+    playtime-format: "auto"
+
+    # Show the player's rank on the server next to each value ("123 (#12)")
+    show-rank: true
+    rank-format: "%value% (#%rank%)"
+
+    # Minutes between leaderboard cache refreshes
+    # Powers %xdiscord_stats_top_<stat>_<n>% and %xdiscord_stats_top_<stat>_<n>_name%
+    top-cache-minutes: 10
+
+    # Weekly/monthly deltas for %xdiscord_stats_weekly_<stat>% and _monthly_<stat>%
+    # snapshots auto-reset when older than 7/30 days; /xdiscord stats reset <period> forces it
+    snapshots:
+      auto-reset: true
+
+    # Discord /stats embed
+    embed:
+      title: "📊 %player%'s Stats"
+      color: "#00AAFF"
+      footer: "XDiscordUltimate • Player Stats"
+      # Placeholders: %player%, %uuid%
+      thumbnail: "https://minotar.net/helm/%uuid%/64.png"
+      inline-fields: true
+      timestamp: true
+
+    # Toggle and rename each stat line (also used as Discord field names).
+    # Supported ids: kills, deaths, kd-ratio, mob-kills, playtime, blocks-broken,
+    # blocks-placed, damage-dealt, damage-taken, distance-walked, jumps,
+    # fish-caught, items-crafted, advancements
+    lines:
+      kills:
+        enabled: true
+        label: "⚔️ Kills"
+      deaths:
+        enabled: true
+        label: "💀 Deaths"
+      kd-ratio:
+        enabled: true
+        label: "📈 K/D Ratio"
+      mob-kills:
+        enabled: true
+        label: "🐾 Mob Kills"
+      playtime:
+        enabled: true
+        label: "⏱️ Playtime"
+      blocks-broken:
+        enabled: true
+        label: "⛏️ Blocks Broken"
+      blocks-placed:
+        enabled: true
+        label: "🧱 Blocks Placed"
+      damage-dealt:
+        enabled: true
+        label: "🗡️ Damage Dealt"
+      damage-taken:
+        enabled: true
+        label: "🛡️ Damage Taken"
+      distance-walked:
+        enabled: true
+        label: "🚶 Distance Walked"
+      jumps:
+        enabled: true
+        label: "🦘 Jumps"
+      fish-caught:
+        enabled: true
+        label: "🎣 Fish Caught"
+      items-crafted:
+        enabled: true
+        label: "🔨 Items Crafted"
+      advancements:
+        enabled: true
+        label: "🏆 Advancements"
 
   welcome-dm:
     enabled: true
@@ -264,6 +472,28 @@ features:
     dm-on-accept: true
     dm-on-decline: true
 
+  # Self-assignable role menus. Buttons toggle a role on/off.
+  # Post a menu with /rolemenu post <id> in Discord.
+  role-menus:
+    enabled: true
+    panels:
+      colors:
+        channel: "roles"
+        title: "Choose your roles"
+        description: "Click a button to toggle a role on or off."
+        color: "#5865F2"
+        options:
+          red:
+            label: "Red"
+            emoji: "🔴"
+            style: "DANGER"
+            role: "Red"
+          blue:
+            label: "Blue"
+            emoji: "🔵"
+            style: "PRIMARY"
+            role: "Blue"
+
   booster-perks:
     enabled: true
     permission-group: "booster"
@@ -311,11 +541,53 @@ database:
     ssl: false
 
 messages:
+  # Global embed color used by /embed and as the default accent ("" = built-in palette)
+  embed-color: ""
   minecraft-to-discord: "**%player%**: %message%"
   discord-to-minecraft: "&7[&9Discord&7] &b%user%&7: &f%message%"
   join-message: ":arrow_right: **%player%** joined the server!"
   leave-message: ":arrow_left: **%player%** left the server!"
   death-message: ":skull: **%player%** %death_message%"
+
+  # Central embed styling. Any key set here overrides the module default
+  # (color accepts hex or names). Delete a key to keep the built-in look.
+  # Available ids: stats, ticket-panel, ticket-welcome, ticket-closed,
+  # announcement, server-status, leaderboard, event
+  #embeds:
+  #  stats:
+  #    color: "#00AAFF"
+  #    footer: "Server Stats"
+  #    thumbnail: ""
+  #  ticket-panel:
+  #    color: "#007BFF"
+  #    footer: "Need help? Open a ticket"
+  #  ticket-welcome:
+  #    color: ""
+  #    footer: ""
+  #  ticket-closed:
+  #    color: "#6C757D"
+  #  announcement:
+  #    color: "#FFC107"
+  #  server-status:
+  #    color: "#28A745"
+  #  leaderboard:
+  #    color: "#FFC107"
+  #  event:
+  #    color: "#17A2B8"
+
+integrations:
+  # Give a Vault economy reward when a player verifies
+  vault-reward:
+    enabled: false
+    amount: 100.0
+
+  # Mirror LuckPerms primary groups onto Discord roles
+  luckperms-role-sync:
+    enabled: false
+    mappings:
+      vip: "VIP"
+      moderator: "Moderator"
+      default: "Member"
 
 advanced:
   thread-pool-size: 4
@@ -324,6 +596,10 @@ advanced:
     max-size: 1000
   rate-limit:
     commands-per-minute: 10
+  metrics:
+    enabled: true
+    # bStats plugin ID (https://bstats.org/plugin/bukkit/XDiscordUltimate/34781)
+    bstats-id: 34781
 
 discord-console:
   enabled: true

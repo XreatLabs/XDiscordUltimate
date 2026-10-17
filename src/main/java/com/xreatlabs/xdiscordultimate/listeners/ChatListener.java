@@ -223,7 +223,12 @@ public class ChatListener implements Listener {
                 null
             );
             
-            // TODO: Send to Discord moderation channel
+            // Mirror to the Discord moderation channel
+            com.xreatlabs.xdiscordultimate.modules.moderation.ModerationModule moderation =
+                plugin.getModuleManager().getModule(com.xreatlabs.xdiscordultimate.modules.moderation.ModerationModule.class);
+            if (moderation != null && moderation.isEnabled()) {
+                moderation.logAutoModerationAction(player, action, message);
+            }
             plugin.getLogger().info("Moderation action: " + action + " for " + player.getName() + ": " + message);
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to log moderation action: " + e.getMessage());

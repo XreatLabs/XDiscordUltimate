@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class BoosterPerksModule extends Module {
 
@@ -95,7 +96,7 @@ public class BoosterPerksModule extends Module {
             syncTask.cancel();
         }
 
-        syncTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        syncTask = SchedulerCompat.runTaskTimerAsync(plugin, () -> {
             syncBoosters();
         }, 100L, syncInterval * 20L);
 
@@ -230,7 +231,7 @@ public class BoosterPerksModule extends Module {
     }
 
     private void onBoosterAdded(String uuid, String discordName) {
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             if (plugin.isLuckPermsEnabled() && !boosterPermissionGroup.isEmpty()) {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
                     "lp user " + uuid + " parent add " + boosterPermissionGroup);
@@ -251,7 +252,7 @@ public class BoosterPerksModule extends Module {
     }
 
     private void onBoosterRemoved(String uuid) {
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        SchedulerCompat.runTask(plugin, () -> {
             // Remove permission group
             if (plugin.isLuckPermsEnabled() && !boosterPermissionGroup.isEmpty()) {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(),

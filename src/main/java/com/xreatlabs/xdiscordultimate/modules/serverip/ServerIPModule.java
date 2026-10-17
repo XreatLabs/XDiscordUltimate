@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class ServerIPModule extends Module implements CommandExecutor, Listener {
 
@@ -85,7 +86,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
                 ? plugin.getConfig().getString("server-ip.default-address", "play.example.com")
                 : currentAddress;
 
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskAsync(plugin, () -> {
                 String imageUrl = generateImage(addr);
                 if (imageUrl == null) {
                     event.getHook().editOriginalEmbeds(
@@ -128,7 +129,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
             String callerName = event.getUser().getName();
             info("Server IP set (Discord): " + address + " (by " + callerName + ")");
 
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskAsync(plugin, () -> {
                 String imageUrl = generateImage(address);
                 if (imageUrl == null) {
                     event.getHook().editOriginalEmbeds(
@@ -163,13 +164,13 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
 
         String trimmed = args.trim();
 
-        // /ip (no args) — show current
+        // /ip (no args) - show current
         if (trimmed.isEmpty()) {
             String addr = currentAddress.isEmpty()
                 ? plugin.getConfig().getString("server-ip.default-address", "play.example.com")
                 : currentAddress;
 
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskAsync(plugin, () -> {
                 String imageUrl = generateImage(addr);
                 if (imageUrl == null) {
                     event.getMessage().reply("The image service is currently offline.").queue();
@@ -187,7 +188,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
             return true;
         }
 
-        // /ip set <address> — admin only
+        // /ip set <address> - admin only
         String[] parts = trimmed.split("\\s+", 2);
         if (parts[0].equalsIgnoreCase("set")) {
             if (parts.length < 2) {
@@ -203,7 +204,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
             String callerName = event.getAuthor().getName();
             info("Server IP set (Discord text): " + address + " (by " + callerName + ")");
 
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskAsync(plugin, () -> {
                 String imageUrl = generateImage(address);
                 if (imageUrl == null) {
                     event.getMessage().reply("Failed to generate image.").queue();
@@ -257,7 +258,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
             info("Server IP set: " + address + " (by " + callerName + ")");
 
             final Player finalPlayer = player;
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            SchedulerCompat.runTaskAsync(plugin, () -> {
                 String imageUrl = generateImage(address);
                 if (imageUrl == null) {
                     Runnable fail = () -> {
@@ -266,7 +267,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
                         if (finalPlayer != null) finalPlayer.sendMessage(msg);
                         else if (sender != null) sender.sendMessage(msg);
                     };
-                    if (finalPlayer != null) Bukkit.getScheduler().runTask(plugin, fail);
+                    if (finalPlayer != null) SchedulerCompat.runTask(plugin, fail);
                     else fail.run();
                     return;
                 }
@@ -279,7 +280,7 @@ public class ServerIPModule extends Module implements CommandExecutor, Listener 
                     if (finalPlayer != null) finalPlayer.sendMessage(msg);
                     else if (sender != null) sender.sendMessage(msg);
                 };
-                if (finalPlayer != null) Bukkit.getScheduler().runTask(plugin, ok);
+                if (finalPlayer != null) SchedulerCompat.runTask(plugin, ok);
                 else ok.run();
             });
             return true;

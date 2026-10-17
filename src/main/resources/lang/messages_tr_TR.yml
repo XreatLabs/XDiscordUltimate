@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>Hata!</gradient> &7Beyaz liste isteği gönderilemedi.
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>Başarılı!</gradient> &7Hesabınız artık Discord ile bağlı!
   ticket-created: <gradient:#55FF55:#55FFFF>Ticket Oluşturuldu!</gradient> &7Güncellemeler için Discord'u kontrol edin.

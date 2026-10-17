@@ -3,6 +3,7 @@ package com.xreatlabs.xdiscordultimate.listeners;
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.chatbridge.ChatBridgeModule;
 import com.xreatlabs.xdiscordultimate.modules.verification.VerificationModule;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -151,7 +152,7 @@ public class PlayerListener implements Listener {
 
         ChatBridgeModule chatBridge = plugin.getModuleManager().getModule(ChatBridgeModule.class);
         if (chatBridge != null) {
-            chatBridge.sendSystemMessage(message, java.awt.Color.YELLOW, plugin.getConfig().getString("features.server-logging.logs-channel-id"));
+            chatBridge.sendSystemMessage(message, EmbedUtils.WARNING, plugin.getConfig().getString("features.server-logging.logs-channel-id"));
         }
     }
 

@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>Chyba!</gradient> &7Nepodařilo se odeslat žádost o whitelist.
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>Úspěch!</gradient> &7Váš účet je nyní propojen s Discord!
   ticket-created: <gradient:#55FF55:#55FFFF>Ticket Vytvořen!</gradient> &7Zkontrolujte Discord pro aktualizace.

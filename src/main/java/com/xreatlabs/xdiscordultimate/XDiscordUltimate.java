@@ -31,8 +31,10 @@ public class XDiscordUltimate extends JavaPlugin {
 
     private Object luckPerms;
     private boolean luckPermsEnabled;
+    private com.xreatlabs.xdiscordultimate.integrations.LuckPermsRoleSync luckPermsRoleSync;
     private boolean placeholderAPIEnabled;
     private java.lang.reflect.Method cachedSetPlaceholdersMethod;
+    private java.lang.reflect.Method cachedSetPlaceholdersOfflineMethod;
     
     @Override
     public void onEnable() {
@@ -40,9 +42,9 @@ public class XDiscordUltimate extends JavaPlugin {
         startTime = System.currentTimeMillis();
 
         getLogger().info("╔════════════════════════════════════════╗");
-        getLogger().info("║      XDiscordUltimate v" + getDescription().getVersion() + "          ║");
-        getLogger().info("║   Premium Discord Integration Plugin   ║");
-        getLogger().info("║     Supports: " + VersionUtils.getSupportedVersions() + "          ║");
+        getLogger().info("║      XDiscordUltimate v" + getDescription().getVersion() + "           ║");
+        getLogger().info("║       Discord Integration Plugin       ║");
+        getLogger().info("║     Supports: " + VersionUtils.getSupportedVersions() + "            ║");
         getLogger().info("╚════════════════════════════════════════╝");
 
         if (!VersionUtils.isSupported()) {
@@ -85,14 +87,14 @@ public class XDiscordUltimate extends JavaPlugin {
         discordManager = new DiscordManager(this);
         discordManager.initialize().thenAccept(success -> {
             if (success) {
-                Bukkit.getScheduler().runTask(this, () -> {
+                SchedulerCompat.runTask(this, () -> {
                     moduleManager.onDiscordReady();
                     getLogger().info("All modules notified of Discord ready state");
 
                     com.xreatlabs.xdiscordultimate.modules.chatbridge.ChatBridgeModule chatBridge =
                         moduleManager.getModule(com.xreatlabs.xdiscordultimate.modules.chatbridge.ChatBridgeModule.class);
                     if (chatBridge != null && chatBridge.isEnabled()) {
-                        Bukkit.getScheduler().runTaskLater(this, chatBridge::sendServerStartMessage, 40L);
+                        SchedulerCompat.runTaskLater(this, chatBridge::sendServerStartMessage, 40L);
                     }
                 });
 
@@ -112,9 +114,17 @@ public class XDiscordUltimate extends JavaPlugin {
         registerCommands();
         registerListeners();
 
+        for (String problem : ConfigValidator.validate(this)) {
+            getLogger().warning("Config: " + problem);
+        }
+
         if (getConfig().getBoolean("advanced.metrics.enabled", true)) {
-            int pluginId = getConfig().getInt("advanced.metrics.bstats-id", 12345);
-            new Metrics(this, pluginId);
+            int pluginId = getConfig().getInt("advanced.metrics.bstats-id", 34781);
+            if (pluginId > 0 && pluginId != 12345) {
+                new Metrics(this, pluginId);
+            } else {
+                getLogger().info("bStats metrics disabled (set advanced.metrics.bstats-id to enable)");
+            }
         }
 
         if (moduleManager != null) {
@@ -122,6 +132,10 @@ public class XDiscordUltimate extends JavaPlugin {
             if (loggingModule != null && loggingModule.isEnabled()) {
                 ((com.xreatlabs.xdiscordultimate.modules.logging.ServerLoggingModule) loggingModule).logServerStartup();
             }
+        }
+
+        if (getConfig().getBoolean("integrations.luckperms-role-sync.enabled", false)) {
+            luckPermsRoleSync = com.xreatlabs.xdiscordultimate.integrations.LuckPermsRoleSync.start(this);
         }
 
         getLogger().info("XDiscordUltimate v" + getDescription().getVersion() + " has been enabled!");
@@ -133,6 +147,10 @@ public class XDiscordUltimate extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (luckPermsRoleSync != null) {
+            luckPermsRoleSync.stop();
+        }
+
         if (consoleAppender != null) {
             consoleAppender.stop();
             org.apache.logging.log4j.core.Logger rootLogger = (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getRootLogger();
@@ -250,6 +268,7 @@ public class XDiscordUltimate extends JavaPlugin {
             try {
                 Class<?> placeholderAPIClass = Class.forName("me.clip.placeholderapi.PlaceholderAPI");
                 cachedSetPlaceholdersMethod = placeholderAPIClass.getMethod("setPlaceholders", org.bukkit.entity.Player.class, String.class);
+                cachedSetPlaceholdersOfflineMethod = placeholderAPIClass.getMethod("setPlaceholders", org.bukkit.OfflinePlayer.class, String.class);
             } catch (Exception e) {
                 getLogger().warning("Failed to cache PlaceholderAPI method: " + e.getMessage());
             }
@@ -315,6 +334,23 @@ public class XDiscordUltimate extends JavaPlugin {
             } catch (Exception e) {
                 // PlaceholderAPI not available or error occurred
             }
+        }
+        return text;
+    }
+
+    public String parsePlaceholders(String text, org.bukkit.OfflinePlayer player) {
+        if (!placeholderAPIEnabled || player == null || text == null) {
+            return text;
+        }
+        try {
+            if (player instanceof org.bukkit.entity.Player && cachedSetPlaceholdersMethod != null) {
+                return (String) cachedSetPlaceholdersMethod.invoke(null, player, text);
+            }
+            if (cachedSetPlaceholdersOfflineMethod != null) {
+                return (String) cachedSetPlaceholdersOfflineMethod.invoke(null, player, text);
+            }
+        } catch (Exception e) {
+            // PlaceholderAPI not available or error occurred
         }
         return text;
     }

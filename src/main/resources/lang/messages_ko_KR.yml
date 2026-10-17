@@ -24,7 +24,7 @@ errors:
   whitelist-submission-failed: <gradient:#FF5555:#AA0000>오류!</gradient> &7화이트리스트 요청 전송에 실패했습니다.
   chat-filtered: '&cYour message was blocked by the chat filter.'
   spam: '&cPlease don''t spam the chat!'
-  max-tickets: '&cYou have reached the maximum number of open tickets!'
+  max-tickets: <gradient:#FFAA00:#FF5555>Limit Reached!</gradient> &7You already have &e%max% &7open ticket(s). Wait for them to be resolved.
 success:
   verified: <gradient:#55FF55:#55FFFF>성공!</gradient> &7계정이 Discord에 연결되었습니다!
   ticket-created: <gradient:#55FF55:#55FFFF>티켓 생성됨!</gradient> &7업데이트는 Discord를 확인하세요.

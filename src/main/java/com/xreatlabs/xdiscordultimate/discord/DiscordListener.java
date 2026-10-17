@@ -19,15 +19,16 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.EventListener;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import java.awt.*;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.awt.*;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.logging.Level;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class DiscordListener implements EventListener {
 
@@ -67,7 +68,7 @@ public class DiscordListener implements EventListener {
 
         plugin.getDiscordManager().updateActivity();
 
-        org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        SchedulerCompat.runTaskLater(plugin, () -> {
             plugin.getDiscordManager().logConfiguredChannels();
         }, 40L);
     }
@@ -118,9 +119,9 @@ public class DiscordListener implements EventListener {
             }
         } else if (message.toLowerCase().startsWith("help")) {
             EmbedBuilder embed = EmbedUtils.infoEmbed("XDiscordUltimate",
-                "`/verify` — Link your Discord account\n" +
-                "`/support <msg>` — Create a support ticket\n" +
-                "`!help` — Bot commands");
+                "`/verify` - Link your Discord account\n" +
+                "`/support <msg>` - Create a support ticket\n" +
+                "`!help` - Bot commands");
 
             event.getChannel().sendMessageEmbeds(embed.build()).queue();
         }
@@ -407,15 +408,17 @@ public class DiscordListener implements EventListener {
                 "`/pay <player> <amount>` - Send money", false)
             .addField("Support & Announcements",
                 "`/ticket create <subject>` - Open a support ticket\n" +
+                "`/ticket adduser|removeuser` - Manage ticket members\n" +
                 "`/announcement list` - View scheduled announcements\n" +
                 "`/voicechannels status` - Voice channel status", false)
             .addField("Admin Commands",
                 "`/console <cmd>` - Execute server command\n" +
                 "`/server <subcommand>` - Server management\n" +
                 "`/announce <msg>` - Send announcement\n" +
+                "`/rolemenu post <panel>` - Post a role menu\n" +
                 "`/economy <action> <player> <amount>` - Economy admin", false)
             .setThumbnail(avatarUrl)
-            .setFooter("XDiscordUltimate • Premium Discord Integration", null)
+            .setFooter("XDiscordUltimate", null)
             .setTimestamp(Instant.now());
     }
 
@@ -436,9 +439,9 @@ public class DiscordListener implements EventListener {
 
         return new EmbedBuilder()
             .setColor(EmbedUtils.SUCCESS)
-            .setAuthor("Server Status", null, "https://crafatar.com/avatars/c06f89064c8a49119c29ea1dbd1aab82?overlay")
+            .setAuthor("Server Status", null, "https://minotar.net/helm/c06f89064c8a49119c29ea1dbd1aab82/64.png")
             .setTitle(Bukkit.getServer().getName())
-            .setDescription("**Server is online and running smoothly!**")
+            .setDescription("**Server is online and running smoothly**")
             .addField("Players", "```\n" + playerBar + " " + onlinePlayers + "/" + maxPlayers + "\n```", false)
             .addField("Performance",
                 tpsStatus + " **TPS:** " + String.format("%.1f", tps) + "/20\n" +
@@ -504,9 +507,9 @@ public class DiscordListener implements EventListener {
             .setColor(EmbedUtils.BRAND_PRIMARY)
             .setAuthor("XDiscordUltimate", null, jda.getSelfUser().getAvatarUrl())
             .setTitle("Plugin Information")
-            .setDescription("**Premium Discord ↔ Minecraft Integration**")
+            .setDescription("**Discord and Minecraft integration**")
             .addField("Version", plugin.getDescription().getVersion(), true)
-            .addField("Author", "XreaLabs", true)
+            .addField("Author", "XReatLabs", true)
             .addField("Platform", Bukkit.getVersion().split("-")[0], true)
             .addField("Features",
                 "• Two-way chat bridge\n" +
@@ -531,7 +534,7 @@ public class DiscordListener implements EventListener {
         return new EmbedBuilder()
             .setColor(EmbedUtils.BRAND_SECONDARY)
             .setAuthor("Server Information", null, null)
-            .setTitle("🏠 " + Bukkit.getServer().getName())
+            .setTitle(Bukkit.getServer().getName())
             .setDescription("**Detailed server information**")
             .addField("Server Details",
                 "**Version:** " + bukkitVersion + "\n" +

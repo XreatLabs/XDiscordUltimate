@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.modules.leaderboard;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
+import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class LeaderboardModule extends Module {
 
@@ -48,14 +50,14 @@ public class LeaderboardModule extends Module {
     private static final long CACHE_DURATION = 60000; // 1 minute cache
 
     public enum LeaderboardType {
-        KILLS("⚔️ Top Kills", Color.RED, "lb_kills"),
-        DEATHS("💀 Top Deaths", Color.GRAY, "lb_deaths"),
-        KD_RATIO("📈 Top K/D Ratio", Color.CYAN, "lb_kd"),
-        PLAYTIME("⏱️ Top Playtime", Color.MAGENTA, "lb_playtime"),
-        MOB_KILLS("🐾 Top Mob Kills", Color.GREEN, "lb_mobs"),
-        BLOCKS_MINED("⛏️ Top Blocks Mined", new Color(0x8B4513), "lb_blocks_mined"),
-        BLOCKS_PLACED("🧱 Top Blocks Placed", new Color(0x20B2AA), "lb_blocks_placed"),
-        DISTANCE_TRAVELED("🚶 Top Distance Traveled", new Color(0x9370DB), "lb_distance");
+        KILLS("⚔️ Top Kills", EmbedUtils.ERROR, "lb_kills"),
+        DEATHS("💀 Top Deaths", EmbedUtils.BRAND_SECONDARY, "lb_deaths"),
+        KD_RATIO("📈 Top K/D Ratio", EmbedUtils.INFO, "lb_kd"),
+        PLAYTIME("⏱️ Top Playtime", new Color(0x9C6ADE), "lb_playtime"),
+        MOB_KILLS("🐾 Top Mob Kills", EmbedUtils.SUCCESS, "lb_mobs"),
+        BLOCKS_MINED("⛏️ Top Blocks Mined", EmbedUtils.WARNING, "lb_blocks_mined"),
+        BLOCKS_PLACED("🧱 Top Blocks Placed", EmbedUtils.BRAND_PRIMARY, "lb_blocks_placed"),
+        DISTANCE_TRAVELED("🚶 Top Distance Traveled", EmbedUtils.DISCORD, "lb_distance");
 
         public final String title;
         public final Color color;
@@ -110,7 +112,7 @@ public class LeaderboardModule extends Module {
             startUpdateTask();
             
             // Initial update
-            Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, this::updateLeaderboard, 60L);
+            SchedulerCompat.runTaskLaterAsync(plugin, this::updateLeaderboard, 60L);
             
             info("Leaderboard connected to Discord");
         }
@@ -230,7 +232,7 @@ public class LeaderboardModule extends Module {
             updateTask.cancel();
         }
         
-        updateTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, 
+        updateTask = SchedulerCompat.runTaskTimerAsync(plugin, 
             this::updateLeaderboard, 
             updateInterval * 20L, 
             updateInterval * 20L
@@ -312,6 +314,7 @@ public class LeaderboardModule extends Module {
 
         if (stats.isEmpty()) {
             embed.setDescription("No player data available yet.\nPlayers need to join the server to appear on the leaderboard.");
+            plugin.getEmbedUtils().applyStyle("leaderboard", embed);
             return embed;
         }
 
@@ -327,7 +330,7 @@ public class LeaderboardModule extends Module {
             // Trim long names so values stay visible on mobile
             String name = truncate(player.name, 14);
             description.append(rank).append(" **")
-                .append(name).append("** — `")
+                .append(name).append("** - `")
                 .append(value).append("`\n");
         }
 
@@ -352,6 +355,7 @@ public class LeaderboardModule extends Module {
             "**Total Playtime:** " + formatPlaytime(totalPlaytime), 
             false);
 
+        plugin.getEmbedUtils().applyStyle("leaderboard", embed);
         return embed;
     }
 

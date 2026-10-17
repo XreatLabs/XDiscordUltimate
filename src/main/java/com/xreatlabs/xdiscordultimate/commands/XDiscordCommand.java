@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 public class XDiscordCommand implements CommandExecutor, TabCompleter {
     
@@ -51,7 +52,11 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
                 break;
 
             case "reload":
-                handleReload(sender);
+                handleReload(sender, args);
+                break;
+
+            case "stats":
+                handleStatsData(sender, args);
                 break;
 
             case "status":
@@ -100,7 +105,24 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
         new XDiscordSetupCommand(plugin).onCommand(sender, null, "setup", new String[0]);
     }
 
-    private void handleReload(CommandSender sender) {
+    private void handleReload(CommandSender sender, String[] args) {
+        if (args.length > 1) {
+            String moduleName = args[1];
+            try {
+                com.xreatlabs.xdiscordultimate.modules.Module module =
+                    plugin.getModuleManager().reloadModule(moduleName);
+                if (module == null) {
+                    plugin.getMessageManager().sendError(sender, "Unknown module: " + moduleName);
+                    return;
+                }
+                plugin.getMessageManager().sendSuccess(sender, "Reloaded module: " + module.getName());
+            } catch (Exception e) {
+                sender.sendMessage(color("<red>Failed to reload " + moduleName + ": " + e.getMessage()));
+                plugin.getLogger().log(Level.SEVERE, "Failed to reload module " + moduleName, e);
+            }
+            return;
+        }
+
         plugin.getMessageManager().sendInfo(sender, "Reloading configuration...");
         
         try {
@@ -110,6 +132,34 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
             plugin.getMessageManager().sendMessage(sender, "general.reload-failed");
             plugin.getLogger().log(Level.SEVERE, "Failed to reload configuration", e);
         }
+    }
+
+    private void handleStatsData(CommandSender sender, String[] args) {
+        com.xreatlabs.xdiscordultimate.modules.stats.PlayerStatsModule statsModule =
+            plugin.getModuleManager().getModule(com.xreatlabs.xdiscordultimate.modules.stats.PlayerStatsModule.class);
+        if (statsModule == null || !statsModule.isEnabled()) {
+            plugin.getMessageManager().sendError(sender, "Stats module is not enabled.");
+            return;
+        }
+
+        String action = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "";
+        String period = args.length > 2 ? args[2].toLowerCase(java.util.Locale.ROOT) : "";
+
+        if ((!action.equals("snapshot") && !action.equals("reset"))
+            || (!period.equals("weekly") && !period.equals("monthly"))) {
+            sender.sendMessage(color("&eUsage: /xdiscord stats <snapshot|reset> <weekly|monthly>"));
+            return;
+        }
+
+        final String finalPeriod = period;
+        sender.sendMessage(color("&7Creating " + finalPeriod + " stats snapshot..."));
+        SchedulerCompat.runTaskAsync(plugin, () -> {
+            statsModule.createSnapshot(finalPeriod);
+            SchedulerCompat.runTask(plugin, () ->
+                plugin.getMessageManager().sendSuccess(sender, finalPeriod
+                    + " snapshot updated. %xdiscord_stats_" + finalPeriod
+                    + "_<stat>% now shows values gained since this point."));
+        });
     }
     
     private void handleStatus(CommandSender sender) {
@@ -548,7 +598,7 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
         
         if (args.length == 1) {
-            completions.addAll(Arrays.asList("setup", "reload", "status", "modules", "debug", "admin", "export", "unlink", "help"));
+            completions.addAll(Arrays.asList("setup", "reload", "status", "stats", "modules", "debug", "admin", "export", "unlink", "help"));
         } else if (args.length == 2) {
             switch (args[0].toLowerCase()) {
                 case "debug":
@@ -560,6 +610,14 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
                 case "export":
                     completions.addAll(Arrays.asList("all", "verified", "stats", "tickets"));
                     break;
+                case "reload":
+                    for (com.xreatlabs.xdiscordultimate.modules.Module module : plugin.getModuleManager().getModules().values()) {
+                        completions.add(module.getName().toLowerCase().replace(' ', '-'));
+                    }
+                    break;
+                case "stats":
+                    completions.addAll(Arrays.asList("snapshot", "reset"));
+                    break;
                 case "unlink":
                     plugin.getServer().getOnlinePlayers().forEach(p -> completions.add(p.getName()));
                     break;
@@ -568,6 +626,8 @@ public class XDiscordCommand implements CommandExecutor, TabCompleter {
                                                     "discordconsole", "report", "discord"));
                     break;
             }
+        } else if (args.length == 3 && args[0].equalsIgnoreCase("stats")) {
+            completions.addAll(Arrays.asList("weekly", "monthly"));
         }
         
         return completions.stream()

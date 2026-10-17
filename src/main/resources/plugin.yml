@@ -1,9 +1,9 @@
 name: XDiscordUltimate
 main: com.xreatlabs.xdiscordultimate.XDiscordUltimate
-version: 1.2.0
+version: '${version}'
 api-version: 1.16
 author: XReatLabs
-description: Premium Discord integration for Minecraft servers (1.16.5 - 1.21.x)
+description: Discord integration for Minecraft servers (1.16.5 - 26.x)
 website: https://github.com/xreatlabs/xdiscordultimate
 softdepend: [LuckPerms, PlaceholderAPI, Vault]
 folia-supported: false
@@ -48,7 +48,7 @@ commands:
 
   xdiscord:
     description: Main XDiscordUltimate command
-    usage: /<command> [setup|reload|status|modules|debug|admin|export|help]
+    usage: /<command> [setup|reload|status|modules|stats|debug|admin|export|help]
     permission: xdiscord.admin
     aliases: [xdu, xdiscordultimate]
 
@@ -106,6 +106,7 @@ permissions:
       xdiscord.whitelist: true
       xdiscord.bypass.verification: true
       xdiscord.bypass.filter: true
+      xdiscord.language: true
 
   xdiscord.admin:
     description: Administrative permissions
