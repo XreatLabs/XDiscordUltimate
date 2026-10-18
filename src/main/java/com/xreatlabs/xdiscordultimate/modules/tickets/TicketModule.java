@@ -612,7 +612,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void handleSlashTicketPriority(SlashCommandInteractionEvent event, Member member) {
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
         if (ticketId == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
                     "This command can only be used inside an active ticket channel.").build())
@@ -717,7 +717,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void handleTextCloseTicket(MessageReceivedEvent event, Member member, String reason) {
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
 
         if (ticketId == null) {
             event.getMessage().reply("This is not a valid ticket channel!").queue();
@@ -797,7 +797,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void handleSlashCloseTicket(SlashCommandInteractionEvent event, Member member) {
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
 
         if (ticketId == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
@@ -1797,7 +1797,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             if (event.getAuthor().isBot()) return;
             
             String channelId = event.getChannel().getId();
-            String ticketId = channelToTicket.get(channelId);
+            String ticketId = resolveTicketId(channelId);
             
             if (ticketId != null) {
                 Ticket ticket = activeTickets.get(ticketId);
@@ -1939,7 +1939,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void handleCloseTicket(ButtonInteractionEvent event) {
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
 
         if (ticketId == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
@@ -1969,7 +1969,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         Member member = event.getMember();
 
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
 
         if (ticketId == null) return;
 
@@ -2433,6 +2433,24 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         saveActiveTickets();
     }
 
+    /**
+     * Resolve the active ticket for a channel, repairing the lookup map if it
+     * went stale (for example after a reload or a missed event).
+     */
+    private String resolveTicketId(String channelId) {
+        if (channelId == null) return null;
+        String ticketId = channelToTicket.get(channelId);
+        if (ticketId != null) return ticketId;
+        for (Map.Entry<String, Ticket> entry : activeTickets.entrySet()) {
+            Ticket ticket = entry.getValue();
+            if (ticket != null && channelId.equals(ticket.channelId)) {
+                channelToTicket.put(channelId, entry.getKey());
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
     private String formatDuration(long millis) {
         long hours = TimeUnit.MILLISECONDS.toHours(millis);
         long minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60;
@@ -2554,7 +2572,7 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
      */
     private Ticket resolveTicketFromEvent(SlashCommandInteractionEvent event) {
         String channelId = event.getChannel().getId();
-        String ticketId = channelToTicket.get(channelId);
+        String ticketId = resolveTicketId(channelId);
         if (ticketId == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
                     "This command can only be used inside an active ticket channel.").build())

@@ -459,16 +459,24 @@ public class EmbedUtils {
      * Missing keys keep the module default.
      */
     public void applyStyle(String id, EmbedBuilder embed) {
+        applyStyle(id, embed, null);
+    }
+
+    /**
+     * Apply a messages.embeds override, substituting any placeholders in the
+     * configured values before they are applied.
+     */
+    public void applyStyle(String id, EmbedBuilder embed, Map<String, String> placeholders) {
         if (id == null || embed == null || plugin == null) return;
         org.bukkit.configuration.ConfigurationSection section =
             plugin.getConfig().getConfigurationSection("messages.embeds." + id);
         if (section == null) return;
 
-        String title = section.getString("title");
+        String title = replacePlaceholders(section.getString("title"), placeholders);
         if (title != null && !title.isEmpty()) {
             embed.setTitle(title);
         }
-        String footer = section.getString("footer");
+        String footer = replacePlaceholders(section.getString("footer"), placeholders);
         if (footer != null && !footer.isEmpty()) {
             embed.setFooter(footer, null);
         }
@@ -476,13 +484,22 @@ public class EmbedUtils {
         if (color != null && !color.isEmpty()) {
             embed.setColor(parseColor(color));
         }
-        String thumbnail = section.getString("thumbnail");
+        String thumbnail = replacePlaceholders(section.getString("thumbnail"), placeholders);
         if (thumbnail != null && !thumbnail.isEmpty()) {
             try {
                 embed.setThumbnail(thumbnail);
             } catch (IllegalArgumentException ignored) {
             }
         }
+    }
+
+    private String replacePlaceholders(String value, Map<String, String> placeholders) {
+        if (value == null || placeholders == null || placeholders.isEmpty()) return value;
+        String result = value;
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            result = result.replace(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+        }
+        return result;
     }
 
     /**

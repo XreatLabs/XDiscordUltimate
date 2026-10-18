@@ -75,6 +75,21 @@ public class DiscordManager {
      * awaitReady() call happen off the server thread, while the returned future is
      * completed on the main thread so callers can safely touch Bukkit state.
      */
+    private boolean isDisallowedIntents(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("4014") || (lower.contains("intent") && lower.contains("allowed"))) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     public CompletableFuture<Boolean> initialize() {
         String token = plugin.getConfigManager().getBotToken();
 
@@ -93,38 +108,55 @@ public class DiscordManager {
             return CompletableFuture.completedFuture(false);
         }
 
+        boolean useMembers = plugin.getConfig().getBoolean("discord.intents.members", true);
+        boolean usePresences = plugin.getConfig().getBoolean("discord.intents.presences", true);
+        boolean useMessageContent = plugin.getConfig().getBoolean("discord.intents.message-content", true);
+
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Configure intents - need GUILD_PRESENCES for booster detection
+                // Configure intents - presences are only needed for native booster detection
                 EnumSet<GatewayIntent> intents = EnumSet.of(
-                    GatewayIntent.GUILD_MEMBERS,
                     GatewayIntent.GUILD_MESSAGES,
                     GatewayIntent.GUILD_MESSAGE_REACTIONS,
                     GatewayIntent.GUILD_VOICE_STATES,
                     GatewayIntent.GUILD_EMOJIS_AND_STICKERS,
-                    GatewayIntent.GUILD_PRESENCES,
-                    GatewayIntent.MESSAGE_CONTENT,
                     GatewayIntent.DIRECT_MESSAGES
                 );
+                if (useMembers) intents.add(GatewayIntent.GUILD_MEMBERS);
+                if (usePresences) intents.add(GatewayIntent.GUILD_PRESENCES);
+                if (useMessageContent) intents.add(GatewayIntent.MESSAGE_CONTENT);
 
                 // Build JDA - only enable cache flags that have corresponding intents
                 discordListener = new DiscordListener(plugin);
-                JDA builtJda = JDABuilder.createDefault(token)
+                JDABuilder builder = JDABuilder.createDefault(token)
                     .setActivity(Activity.playing("Minecraft"))
                     .setEnabledIntents(intents)
-                    .setMemberCachePolicy(MemberCachePolicy.ALL)
-                    .setChunkingFilter(ChunkingFilter.ALL)
                     .enableCache(CacheFlag.VOICE_STATE, CacheFlag.EMOJI, CacheFlag.ROLE_TAGS)
                     .disableCache(CacheFlag.SCHEDULED_EVENTS) // Explicitly disable scheduled events cache
-                    .addEventListeners(discordListener)
-                    .build();
+                    .addEventListeners(discordListener);
+                if (useMembers) {
+                    // Member chunking needs the Server Members intent
+                    builder.setMemberCachePolicy(MemberCachePolicy.ALL)
+                        .setChunkingFilter(ChunkingFilter.ALL);
+                } else {
+                    builder.setMemberCachePolicy(MemberCachePolicy.DEFAULT)
+                        .setChunkingFilter(ChunkingFilter.NONE);
+                }
+                JDA builtJda = builder.build();
 
                 // Wait for ready off the server thread
                 builtJda.awaitReady();
                 this.jda = builtJda;
                 return true;
             } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to initialize Discord bot", e);
+                if (isDisallowedIntents(e)) {
+                    plugin.getLogger().severe("Discord rejected the bot's gateway intents (error 4014).");
+                    plugin.getLogger().severe("Enable Server Members Intent, Presence Intent and Message Content Intent");
+                    plugin.getLogger().severe("in the Discord Developer Portal (Bot tab), or turn off the ones you do");
+                    plugin.getLogger().severe("not need under discord.intents in config.yml, then restart the server.");
+                } else {
+                    plugin.getLogger().log(Level.SEVERE, "Failed to initialize Discord bot", e);
+                }
                 return false;
             }
         }).thenApplyAsync(success -> {

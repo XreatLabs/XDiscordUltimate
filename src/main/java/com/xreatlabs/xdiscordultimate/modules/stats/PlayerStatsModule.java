@@ -566,7 +566,7 @@ public class PlayerStatsModule extends Module implements Listener {
             }
         }
 
-        plugin.getEmbedUtils().applyStyle("stats", embed);
+        plugin.getEmbedUtils().applyStyle("stats", embed, placeholders);
 
         int fields = 0;
         for (String id : STAT_ORDER) {

@@ -105,7 +105,7 @@ public class XDiscordUltimate extends JavaPlugin {
                     rootLogger.addAppender(consoleAppender);
                 }
             } else {
-                getLogger().severe("Failed to initialize Discord bot! Check your bot token and guild ID.");
+                getLogger().severe("Failed to initialize Discord bot! Check your bot token, guild ID, and gateway intents.");
             }
         });
 

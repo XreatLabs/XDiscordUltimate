@@ -11,6 +11,10 @@ Keys under `features.announcements`:
 | `enabled` | `true` | Enables the module. |
 | `default-channel` | `"announcements"` | Discord channel used for announcements. |
 | `send-to-discord` | `false` | When true, announcements are posted to Discord as embeds. |
+| `boss-bar.enabled` | `true` | Show each announcement on a boss bar for its duration. |
+| `boss-bar.seconds` | `15` | Seconds the boss bar stays on screen. |
+| `boss-bar.color` | `"BLUE"` | Boss bar color: `BLUE`, `GREEN`, `PINK`, `PURPLE`, `RED`, `WHITE`, `YELLOW`. |
+| `boss-bar.style` | `"SOLID"` | Boss bar style: `SOLID`, `SEGMENTED_6`, `SEGMENTED_10`, `SEGMENTED_12`, `SEGMENTED_20`. |
 | `scheduled` | `{}` | Map of recurring announcements. |
 
 Each entry under `scheduled.<id>`:
@@ -26,7 +30,7 @@ Each entry under `scheduled.<id>`:
 | `discord` | `true` | Send to Discord. |
 | `discord-color` | `"#FFD700"` | Embed color for Discord posts. |
 
-A legacy `features.announcements.announcements` section is still read when `scheduled` is absent. The shipped `show-title`, `title-stay`, `title-fade-in`, `title-fade-out`, `prefix`, `sound`, and root `discord-color` keys are not read in this version; the prefix and sound are fixed in code.
+A legacy `features.announcements.announcements` section is still read when `scheduled` is absent. The shipped `show-title`, `title-stay`, `title-fade-in`, `title-fade-out`, `prefix`, `sound`, and root `discord-color` keys are not read in this version; the prefix and sound are fixed in code. The `boss-bar` keys are read.
 
 ## Commands
 
@@ -49,5 +53,6 @@ In-game:
 
 - Schedule timers start when the module enables; entries with `enabled: false`, or an `interval` of 0 or less, are skipped.
 - A welcome announcement is sent to players when they join and is always enabled in code.
+- Announcements also appear on a boss bar above the hotbar; tune it with the `boss-bar` keys.
 - Override the embed style with `messages.embeds.announcement`.
 - Colors accept hex values such as `#FFD700`.

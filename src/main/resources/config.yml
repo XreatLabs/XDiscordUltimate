@@ -322,6 +322,16 @@ features:
     prefix: "&6[&eAnnouncement&6] &f"
     sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
     discord-color: "#FFD700"
+
+    # Briefly shows each announcement on a boss bar above the hotbar.
+    # color: BLUE, GREEN, PINK, PURPLE, RED, WHITE, YELLOW
+    # style: SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20
+    boss-bar:
+      enabled: true
+      seconds: 15
+      color: "BLUE"
+      style: "SOLID"
+
     scheduled: {}
 
   player-stats:
@@ -496,7 +506,7 @@ features:
 
   server-ip:
     enabled: true
-    api-url: "https://replacement-such-backgrounds-usr.trycloudflare.com"
+    # Channel name where /ip set posts the rendered address card
     image-channel: "general"
 
   whitelist:
@@ -546,6 +556,16 @@ discord:
   guild-id: "YOUR_GUILD_ID"
   guild-name: "Our Discord Server"
   invite-url: ""
+  # Gateway intents. The privileged ones must also be enabled in the Discord
+  # Developer Portal (Bot tab) or the bot fails with error 4014:
+  #   members         - member lookups, role sync, member chunking (Server Members Intent)
+  #   presences       - native booster detection via member.isBoosting (Presence Intent)
+  #   message-content - reading normal message text from Discord (Message Content Intent)
+  # Turn off the intents you do not need, then restart the server.
+  intents:
+    members: true
+    presences: true
+    message-content: true
   activity:
     type: "PLAYING"
     text: "with %players%/%max% players"

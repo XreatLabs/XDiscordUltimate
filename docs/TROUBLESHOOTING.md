@@ -19,7 +19,21 @@ Token or guild changes require a server restart. `/xdiscord reload` only reloads
 
 ## Missing intents
 
-In the Discord Developer Portal, Bot tab, enable Presence Intent, Server Members Intent, and Message Content Intent. XDiscordUltimate requests guild members, presences, messages, message content, direct messages, reactions, voice states, and emojis/stickers. If the privileged intents are not enabled in the portal, the bot fails to connect. Symptoms of missing intents while connected:
+If the bot fails with `CloseCode[DISALLOWED_INTENTS] (code=4014)`:
+
+1. Open the Discord Developer Portal, select your application, go to the Bot tab.
+2. Under Privileged Gateway Intents enable: Server Members Intent, Presence Intent, and Message Content Intent.
+3. Restart the server.
+
+Alternatively, disable the intents you do not need under `discord.intents` in `config.yml`, then restart:
+
+| Key | Needed for |
+| --- | --- |
+| `discord.intents.members` | Member lookups, role sync, member chunking. |
+| `discord.intents.presences` | Native booster detection (`member.isBoosting`). |
+| `discord.intents.message-content` | Reading normal message text from Discord, for example the chat bridge. |
+
+Anything disabled in the portal must also be disabled in the config, and vice versa. Symptoms of missing intents while connected:
 
 - Chat bridge receives no Discord messages: Message Content Intent.
 - Booster detection, nickname sync, or member lookups fail: Server Members Intent and Presence Intent.

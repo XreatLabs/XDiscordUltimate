@@ -4,6 +4,7 @@ import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
 import com.xreatlabs.xdiscordultimate.modules.Module;
 import com.xreatlabs.xdiscordultimate.utils.ColorUtils;
 import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
+import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
@@ -18,6 +19,9 @@ import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -47,6 +51,11 @@ public class AnnouncementModule extends Module implements Listener {
     private boolean enableDiscordSync;
     private String announcementPrefix;
     private Sound announcementSound;
+    private boolean bossBarEnabled;
+    private int bossBarSeconds;
+    private BarColor bossBarColor;
+    private BarStyle bossBarStyle;
+    private final List<BossBar> activeBossBars = Collections.synchronizedList(new ArrayList<>());
     
     public AnnouncementModule(XDiscordUltimate plugin) {
         super(plugin);
@@ -84,6 +93,14 @@ public class AnnouncementModule extends Module implements Listener {
         scheduledAnnouncements.values().forEach(BukkitTask::cancel);
         scheduledAnnouncements.clear();
         
+        // Remove any boss bars that are still showing
+        synchronized (activeBossBars) {
+            for (BossBar bar : activeBossBars) {
+                bar.removeAll();
+            }
+            activeBossBars.clear();
+        }
+
         // Save muted players
         saveMutedPlayers();
         
@@ -260,6 +277,10 @@ public class AnnouncementModule extends Module implements Listener {
             enableAutoAnnouncements = true;
             enableJoinAnnouncements = true;
             enableDiscordSync = config.getBoolean("send-to-discord", false);
+            bossBarEnabled = config.getBoolean("boss-bar.enabled", true);
+            bossBarSeconds = Math.max(3, config.getInt("boss-bar.seconds", 15));
+            bossBarColor = parseBarColor(config.getString("boss-bar.color", "BLUE"));
+            bossBarStyle = parseBarStyle(config.getString("boss-bar.style", "SOLID"));
             announcementPrefix = ColorUtils.parse("<gradient:#FFD700:#FFA500>✦ Announcement</gradient> &8» &r");
         } else {
             warning("Config section not found, using defaults");
@@ -267,6 +288,10 @@ public class AnnouncementModule extends Module implements Listener {
             enableAutoAnnouncements = true;
             enableJoinAnnouncements = true;
             enableDiscordSync = false;
+            bossBarEnabled = true;
+            bossBarSeconds = 15;
+            bossBarColor = BarColor.BLUE;
+            bossBarStyle = BarStyle.SOLID;
             announcementPrefix = ColorUtils.parse("<gradient:#FFD700:#FFA500>✦ Announcement</gradient> &8» &r");
         }
         
@@ -474,6 +499,44 @@ public class AnnouncementModule extends Module implements Listener {
             if (announcementSound != null) {
                 player.playSound(player.getLocation(), announcementSound, 1.0f, 1.0f);
             }
+
+            // Show the message on a boss bar
+            showBossBar(player, String.join(" ", announcement.messages));
+        }
+    }
+
+    private BarColor parseBarColor(String value) {
+        try {
+            return BarColor.valueOf(value == null ? "BLUE" : value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return BarColor.BLUE;
+        }
+    }
+
+    private BarStyle parseBarStyle(String value) {
+        try {
+            return BarStyle.valueOf(value == null ? "SOLID" : value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return BarStyle.SOLID;
+        }
+    }
+
+    private void showBossBar(Player player, String text) {
+        if (!bossBarEnabled || text == null || text.isEmpty()) return;
+        try {
+            String title = ColorUtils.parse(text).replace('\n', ' ').replace('\r', ' ').trim();
+            if (title.length() > 256) {
+                title = title.substring(0, 253) + "...";
+            }
+            BossBar bar = Bukkit.createBossBar(title, bossBarColor, bossBarStyle);
+            bar.setProgress(1.0);
+            bar.addPlayer(player);
+            activeBossBars.add(bar);
+            SchedulerCompat.runTaskLater(plugin, () -> {
+                activeBossBars.remove(bar);
+                bar.removeAll();
+            }, bossBarSeconds * 20L);
+        } catch (Exception ignored) {
         }
     }
 
@@ -519,6 +582,8 @@ public class AnnouncementModule extends Module implements Listener {
         if (announcementSound != null) {
             player.playSound(player.getLocation(), announcementSound, 1.0f, 1.0f);
         }
+
+        showBossBar(player, String.join(" ", announcement.messages));
     }
     
     private void sendDiscordAnnouncement(Announcement announcement) {

@@ -50,7 +50,7 @@ Every module has a `features.<name>.enabled` toggle. Registered modules:
 | `activity-roles` | Playtime tier roles |
 | `voice-channels` | Status channel and dynamic voice rooms |
 | `economy-bridge` | Vault economy Discord commands |
-| `server-ip` | Server address image via `/ip` |
+| `server-ip` | Server address card rendered locally and shared via `/ip` |
 | `whitelist` | Whitelist requests from Discord |
 | `role-menus` | Self-assignable role button panels |
 
@@ -87,10 +87,11 @@ Notable module keys:
 | `bot-token` | Bot token from the Developer Portal |
 | `guild-id` | Main Discord server ID |
 | `guild-name` | Display name used by `/discord` |
-| `invite-url` | Invite link used by `/discord` |
+| `invite-url` | Invite link used by `/discord` (opens a menu) and `/invite` |
 | `text-command-prefix` | Prefix for legacy text commands (default `!`); this is the key the bot reads |
 | `commands.use-slash-commands` / `commands.legacy-prefix` | Command settings declared in the shipped config |
 | `activity.type` / `activity.text` / `activity.status` | Bot presence (text supports `%players%` and `%max%`) |
+| `intents.members` / `intents.presences` / `intents.message-content` | Privileged gateway intents (default all `true`). Must match the Developer Portal toggles or the bot fails with error 4014 |
 | `channels.*` | Named channel map: welcome, logs, chat, console, events, tickets, moderation |
 
 ## database
