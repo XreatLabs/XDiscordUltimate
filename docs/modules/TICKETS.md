@@ -12,7 +12,7 @@ Keys under `features.tickets`:
 | `ticket-category` | `"Support Tickets"` | Category where ticket channels are created. |
 | `ticket-panel-channel` | `"ticket-logs"` | Channel holding the creation panel. |
 | `transcript-channel` | `"ticket-logs"` | Channel where transcripts are uploaded. |
-| `support-role` | `"Support"` | Role pinged and allowed to manage tickets. |
+| `support-role` | `"Support"` | Role ID (preferred) or name; pinged and allowed to manage tickets. |
 | `max-open-tickets` | `3` | Open tickets allowed per user. |
 | `auto-close-hours` | `48` | Close inactive tickets after N hours. `0` disables. |
 | `auto-close-warning-enabled` | `true` | Warn before auto-closing. |

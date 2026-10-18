@@ -253,6 +253,16 @@ public class RoleMenuModule extends Module {
         }
     }
 
+    private Role resolveRole(Guild guild, String spec) {
+        if (spec == null || spec.trim().isEmpty()) return null;
+        String value = spec.trim();
+        if (value.matches("\\d+")) {
+            Role byId = guild.getRoleById(value);
+            if (byId != null) return byId;
+        }
+        return guild.getRolesByName(value, true).stream().findFirst().orElse(null);
+    }
+
     private class RoleMenuListener extends ListenerAdapter {
         @Override
         public void onButtonInteraction(ButtonInteractionEvent event) {
@@ -271,7 +281,7 @@ public class RoleMenuModule extends Module {
             if (option == null) return;
 
             Guild guild = event.getGuild();
-            Role role = guild.getRolesByName(option.role, true).stream().findFirst().orElse(null);
+            Role role = resolveRole(guild, option.role);
             if (role == null) {
                 event.replyEmbeds(EmbedUtils.errorEmbed("Role Missing",
                         "The role **" + option.role + "** no longer exists on this server.").build())

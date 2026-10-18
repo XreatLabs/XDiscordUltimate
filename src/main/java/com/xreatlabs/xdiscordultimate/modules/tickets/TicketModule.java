@@ -632,9 +632,9 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                 .setEphemeral(true).queue();
             return;
         }
-        String priorityRoleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        String priorityRole = ticket.type != null ? ticket.type.supportRole : supportRoleName;
         boolean isSupport = member.hasPermission(Permission.MANAGE_CHANNEL)
-            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(priorityRoleName));
+            || memberHasRole(member, priorityRole);
         if (!member.getId().equals(ticket.userId) && !isSupport) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may change this ticket's priority.").build())
@@ -745,8 +745,8 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private boolean canMemberClose(Member member, Ticket ticket) {
         if (member.hasPermission(Permission.MANAGE_CHANNEL)) return true;
-        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
-        if (member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(roleName))) {
+        String roleSpec = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        if (memberHasRole(member, roleSpec)) {
             return true;
         }
         return playerCanClose && member.getId().equals(ticket.userId);
@@ -1516,6 +1516,23 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         return guild.getTextChannelsByName(value, true).stream().findFirst().orElse(null);
     }
 
+    private boolean memberHasRole(Member member, String roleSpec) {
+        if (member == null || roleSpec == null || roleSpec.trim().isEmpty()) return false;
+        String value = roleSpec.trim();
+        if (value.matches("\\d+")) {
+            return member.getRoles().stream().anyMatch(role -> role.getId().equals(value));
+        }
+        return member.getRoles().stream().anyMatch(role -> role.getName().equalsIgnoreCase(value));
+    }
+
+    private void notifyTicketFailure(String userId, String reason) {
+        Guild guild = plugin.getDiscordManager() != null ? plugin.getDiscordManager().getMainGuild() : null;
+        if (guild == null) return;
+        TextChannel panel = resolvePanelChannel(guild);
+        if (panel == null) return;
+        panel.sendMessage("<@" + userId + "> Your ticket could not be created: " + reason).queue();
+    }
+
     private Role resolveRole(Guild guild, String idOrName) {
         if (idOrName == null || idOrName.trim().isEmpty()) return null;
         String value = idOrName.trim();
@@ -1554,14 +1571,18 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         plugin.getDatabaseManager().getMinecraftUuid(userId)
             .thenAccept(minecraftUuid -> {
                 if (minecraftUuid == null) {
-                    // User not properly verified
+                    warning("Ticket not created for " + member.getEffectiveName() + ": no linked Minecraft account");
                     return;
                 }
 
                 // Check if user already has too many open tickets
                 plugin.getDatabaseManager().getOpenTicketsCount(minecraftUuid)
                     .thenAccept(openCount -> {
-                        if (openCount >= maxOpenTickets || checkTicketLimits(userId, finalType.id) != null) {
+                        if (openCount >= maxOpenTickets) {
+                            notifyTicketFailure(userId, "you already have the maximum number of open tickets.");
+                            return;
+                        }
+                        if (checkTicketLimits(userId, finalType.id) != null) {
                             return; // Already handled in button interaction
                         }
 
@@ -1570,13 +1591,25 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
                             .thenAccept(dbTicketId -> {
                                 if (dbTicketId <= 0) {
                                     plugin.getLogger().severe("Failed to create ticket in database");
+                                    notifyTicketFailure(userId, "the ticket could not be saved. Please try again.");
                                     return;
                                 }
                                 
                                 // Create Discord channel
                                 createDiscordChannel(guild, member, userId, minecraftName, subject,
                                     dbTicketId, finalPriority, finalType, answers);
+                            })
+                            .exceptionally(throwable -> {
+                                warning("Could not create ticket for " + member.getEffectiveName()
+                                    + ": " + throwable.getMessage());
+                                notifyTicketFailure(userId, "the ticket could not be saved. Please try again.");
+                                return null;
                             });
+                    })
+                    .exceptionally(throwable -> {
+                        warning("Could not read the open ticket count for " + member.getEffectiveName()
+                            + ": " + throwable.getMessage());
+                        return null;
                     });
             });
     }
@@ -1600,15 +1633,23 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
         // Create ticket channel
         Category category = getOrCreateCategory(guild, finalType.category);
-        TextChannel ticketChannel = guild.createTextChannel(channelName)
-            .setParent(category)
-            .setTopic(applyPlaceholders(channelTopicFormat, channelPlaceholders))
-            .addPermissionOverride(guild.getPublicRole(), null, EnumSet.of(Permission.VIEW_CHANNEL))
-            .addPermissionOverride(member, EnumSet.of(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND), null)
-            .complete();
+        TextChannel ticketChannel;
+        try {
+            ticketChannel = guild.createTextChannel(channelName)
+                .setParent(category)
+                .setTopic(applyPlaceholders(channelTopicFormat, channelPlaceholders))
+                .addPermissionOverride(guild.getPublicRole(), null, EnumSet.of(Permission.VIEW_CHANNEL))
+                .addPermissionOverride(member, EnumSet.of(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND), null)
+                .complete();
+        } catch (Exception e) {
+            warning("Could not create a channel for ticket #" + dbTicketId + ": " + e.getMessage());
+            plugin.getDatabaseManager().closeTicket(dbTicketId);
+            notifyTicketFailure(userId, "the ticket channel could not be created. Please contact an administrator.");
+            return;
+        }
 
         // Add support role permissions
-        Role supportRole = guild.getRolesByName(finalType.supportRole, true).stream().findFirst().orElse(null);
+        Role supportRole = resolveRole(guild, finalType.supportRole);
         if (supportRole != null) {
             ticketChannel.upsertPermissionOverride(supportRole)
                 .setAllowed(Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_MANAGE)
@@ -1649,7 +1690,8 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             ticketChannel.sendMessage(supportRole.getAsMention() + " - New ticket created! (" + finalPriority.label + ")").queue();
         }
         if (finalType.pingRole != null && !finalType.pingRole.isEmpty()
-            && (supportRole == null || !finalType.pingRole.equalsIgnoreCase(supportRole.getName()))) {
+            && (supportRole == null || (!finalType.pingRole.equals(supportRole.getId())
+                && !finalType.pingRole.equalsIgnoreCase(supportRole.getName())))) {
             Role pingRole = resolveRole(guild, finalType.pingRole);
             if (pingRole != null) {
                 ticketChannel.sendMessage(pingRole.getAsMention() + " - New " + finalType.label + " ticket").queue();
@@ -1978,9 +2020,8 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         if (ticket == null) return;
 
         // Check if member has support role
-        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
-        boolean isSupport = member.getRoles().stream()
-            .anyMatch(role -> role.getName().equalsIgnoreCase(roleName));
+        String roleSpec = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        boolean isSupport = memberHasRole(member, roleSpec);
 
         if (!isSupport) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
@@ -2506,18 +2547,32 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     private void recoverOpenTicketsFromDatabase() {
         Guild guild = plugin.getDiscordManager() != null ? plugin.getDiscordManager().getMainGuild() : null;
         if (guild == null) return;
-        plugin.getDatabaseManager().getOpenTicketChannels()
+        plugin.getDatabaseManager().closeTicketsWithoutChannel()
+            .thenCompose(closed -> {
+                if (closed > 0) {
+                    info("Closed " + closed + " ticket(s) that never got a Discord channel");
+                }
+                return plugin.getDatabaseManager().getOpenTicketChannels();
+            })
             .thenAccept(rows -> {
                 int recovered = 0;
+                int closed = 0;
                 for (DatabaseManager.TicketRecovery row : rows) {
                     if (row.channelId == null || row.channelId.isEmpty()) continue;
                     if (channelToTicket.containsKey(row.channelId)) continue;
-                    if (guild.getTextChannelById(row.channelId) == null) continue;
+                    if (guild.getTextChannelById(row.channelId) == null) {
+                        plugin.getDatabaseManager().closeTicket(row.id);
+                        closed++;
+                        continue;
+                    }
                     registerRecoveredTicket(row);
                     recovered++;
                 }
                 if (recovered > 0) {
                     info("Recovered " + recovered + " ticket(s) from the database");
+                }
+                if (closed > 0) {
+                    info("Closed " + closed + " ticket(s) whose Discord channel no longer exists");
                 }
             })
             .exceptionally(throwable -> {
@@ -2662,9 +2717,28 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void replyNotATicketChannel(SlashCommandInteractionEvent event) {
+        if (isPanelChannel(event.getChannel().getId())) {
+            event.replyEmbeds(EmbedUtils.infoEmbed("Ticket Panel",
+                    "This is the ticket panel channel. Open a ticket with the panel button first, then use this command inside the ticket channel.").build())
+                .setEphemeral(true).queue();
+            return;
+        }
         event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
                 "This command can only be used inside an active ticket channel.").build())
             .setEphemeral(true).queue();
+    }
+
+    private boolean isPanelChannel(String channelId) {
+        if (panelChannelId != null && panelChannelId.equals(channelId)) {
+            return true;
+        }
+        for (String id : panelChannelIds.values()) {
+            if (channelId.equals(id)) {
+                return true;
+            }
+        }
+        String configured = plugin.getConfig().getString("discord.channels.tickets", "");
+        return configured != null && configured.matches("\\d+") && configured.equals(channelId);
     }
 
     /**
@@ -2679,9 +2753,9 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             return false;
         }
         boolean isCreator = member.getId().equals(ticket.userId);
-        String roleName = ticket.type != null ? ticket.type.supportRole : supportRoleName;
+        String roleSpec = ticket.type != null ? ticket.type.supportRole : supportRoleName;
         boolean isSupport = member.hasPermission(Permission.MANAGE_CHANNEL)
-            || member.getRoles().stream().anyMatch(r -> r.getName().equalsIgnoreCase(roleName));
+            || memberHasRole(member, roleSpec);
         if (!isCreator && !isSupport) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Permission Denied",
                     "Only the ticket creator or support staff may edit this ticket.").build())

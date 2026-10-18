@@ -5,6 +5,7 @@ import com.xreatlabs.xdiscordultimate.modules.Module;
 import com.xreatlabs.xdiscordultimate.utils.ColorUtils;
 import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
@@ -348,9 +349,7 @@ public class ModerationModule extends Module implements Listener {
                         error -> error("Failed to sync timeout to Discord: " + error.getMessage())
                     );
                 } else {
-                    Role mutedDiscordRole = plugin.getDiscordManager().getMainGuild()
-                        .getRolesByName(mutedRole, true).stream()
-                        .findFirst().orElse(null);
+                    Role mutedDiscordRole = resolveMutedRole(plugin.getDiscordManager().getMainGuild());
 
                     if (mutedDiscordRole != null) {
                         plugin.getDiscordManager().getMainGuild()
@@ -369,6 +368,25 @@ public class ModerationModule extends Module implements Listener {
             });
     }
     
+    private boolean isMutedRole(Role role) {
+        if (role == null || mutedRole == null || mutedRole.trim().isEmpty()) return false;
+        String spec = mutedRole.trim();
+        if (spec.matches("\\d+")) {
+            return role.getId().equals(spec);
+        }
+        return role.getName().equalsIgnoreCase(spec);
+    }
+
+    private Role resolveMutedRole(Guild guild) {
+        if (guild == null || mutedRole == null || mutedRole.trim().isEmpty()) return null;
+        String spec = mutedRole.trim();
+        if (spec.matches("\\d+")) {
+            Role byId = guild.getRoleById(spec);
+            if (byId != null) return byId;
+        }
+        return guild.getRolesByName(spec, true).stream().findFirst().orElse(null);
+    }
+
     private void logModerationAction(String action, String targetName, String targetId,
                                    String moderator, String reason, Duration duration) {
         TextChannel logChannel = getLogChannel();
@@ -470,7 +488,7 @@ public class ModerationModule extends Module implements Listener {
             
             // Check if muted role was added
             event.getRoles().stream()
-                .filter(role -> role.getName().equalsIgnoreCase(mutedRole))
+                .filter(role -> isMutedRole(role))
                 .findFirst()
                 .ifPresent(role -> {
                     // Sync mute to Minecraft (JDA callback is already async, so a sync DB lookup is safe)
@@ -490,7 +508,7 @@ public class ModerationModule extends Module implements Listener {
             
             // Check if muted role was removed
             event.getRoles().stream()
-                .filter(role -> role.getName().equalsIgnoreCase(mutedRole))
+                .filter(role -> isMutedRole(role))
                 .findFirst()
                 .ifPresent(role -> {
                     // Sync unmute to Minecraft (JDA callback is already async, so a sync DB lookup is safe)
@@ -795,7 +813,7 @@ public class ModerationModule extends Module implements Listener {
 
         // Check muted role
         return member.getRoles().stream()
-            .anyMatch(role -> role.getName().equalsIgnoreCase(mutedRole));
+            .anyMatch(role -> isMutedRole(role));
     }
     
     /**

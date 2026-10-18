@@ -12,7 +12,7 @@ Keys under `features.moderation`:
 | `sync-bans` | `true` | Minecraft bans also ban the linked Discord user; Discord bans are applied to linked Minecraft players. |
 | `sync-kicks` | `false` | Post Minecraft kicks to Discord. |
 | `sync-mutes` | `false` | Sync mutes: Discord timeouts and the muted role mute the player in Minecraft chat. |
-| `muted-role` | `"Muted"` | Discord role used for permanent mute sync. |
+| `muted-role` | `"Muted"` | Role ID (preferred) or name used for permanent mute sync. |
 | `log-channel` | `"mod-logs"` | Channel for moderation logs. |
 | `auto-moderate` | `true` | Enables the chat filter and Minecraft command logging. |
 | `report-cooldown-minutes` | `5` | Cooldown between `/report` uses. |

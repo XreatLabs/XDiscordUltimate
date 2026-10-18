@@ -728,7 +728,7 @@ public class DatabaseManager {
     public CompletableFuture<TicketRecovery> getOpenTicketByChannel(String channelId) {
         return executeAsync(() -> {
             String sql = "SELECT t.id, t.subject, t.discord_channel_id, v.discord_id, v.minecraft_name " +
-                "FROM tickets t JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
+                "FROM tickets t LEFT JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
                 "WHERE t.discord_channel_id = ? AND t.status = 'OPEN' LIMIT 1";
 
             try (Connection conn = getConnection();
@@ -754,7 +754,7 @@ public class DatabaseManager {
     public CompletableFuture<List<TicketRecovery>> getOpenTicketChannels() {
         return executeAsync(() -> {
             String sql = "SELECT t.id, t.subject, t.discord_channel_id, v.discord_id, v.minecraft_name " +
-                "FROM tickets t JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
+                "FROM tickets t LEFT JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
                 "WHERE t.status = 'OPEN' AND t.discord_channel_id IS NOT NULL";
 
             List<TicketRecovery> rows = new ArrayList<>();
@@ -769,6 +769,22 @@ public class DatabaseManager {
                 }
             }
             return rows;
+        });
+    }
+
+    /**
+     * Close open tickets that never received a Discord channel, so they stop
+     * counting against user limits.
+     */
+    public CompletableFuture<Integer> closeTicketsWithoutChannel() {
+        return executeAsync(() -> {
+            String sql = "UPDATE tickets SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP " +
+                "WHERE status = 'OPEN' AND (discord_channel_id IS NULL OR discord_channel_id = '')";
+
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+                return stmt.executeUpdate();
+            }
         });
     }
 

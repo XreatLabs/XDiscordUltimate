@@ -18,7 +18,7 @@ Keys under `features.verification`:
 | `one-time-only` | `false` | Refuse a new link when the Discord account is already linked. |
 | `kick-after-minutes` | `0` | Kick unverified players after N minutes. `0` disables the kick. |
 | `whitelist-mode` | `false` | Treat the server as verify-first; unverified players are placed on the kick timer. |
-| `verified-role` | `"Verified"` | Discord role granted on success. |
+| `verified-role` | `"Verified"` | Role ID (preferred) or name granted on success. |
 | `verified-group` | `"verified"` | LuckPerms group granted on success. |
 | `sync-nickname` | `true` | Sync the Discord nickname with Minecraft. |
 | `code-length` | `6` | Number of digits in a verification code. |

@@ -318,11 +318,15 @@ public class WhitelistModule extends Module implements CommandExecutor {
         if (member.hasPermission(Permission.MANAGE_CHANNEL)) {
             return true;
         }
-        if (supportRoleName == null || supportRoleName.isEmpty()) {
+        if (supportRoleName == null || supportRoleName.trim().isEmpty()) {
             return false;
         }
+        String spec = supportRoleName.trim();
+        if (spec.matches("\\d+")) {
+            return member.getRoles().stream().anyMatch(role -> role.getId().equals(spec));
+        }
         for (Role role : member.getRoles()) {
-            if (supportRoleName.equalsIgnoreCase(role.getName())) {
+            if (spec.equalsIgnoreCase(role.getName())) {
                 return true;
             }
         }

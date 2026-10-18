@@ -75,6 +75,13 @@ public class AdminUtils {
                 return false;
             }
             
+            if (requiredRole.matches("\\d+")) {
+                for (Role role : member.getRoles()) {
+                    if (role.getId().equals(requiredRole)) {
+                        return true;
+                    }
+                }
+            }
             for (Role role : member.getRoles()) {
                 if (role.getName().equalsIgnoreCase(requiredRole)) {
                     return true;

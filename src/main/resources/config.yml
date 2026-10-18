@@ -70,6 +70,7 @@ features:
     one-time-only: false
     kick-after-minutes: 0
     whitelist-mode: false
+    # Role ID (preferred) or role name granted when a player verifies
     verified-role: "Verified"
     verified-group: "verified"
     sync-nickname: true
@@ -93,6 +94,7 @@ features:
       tps: true
       list: true
     require-role: true
+    # Role ID (preferred) or role name allowed to use server control commands
     control-role: "Server Admin"
 
   admin-alerts:
@@ -110,6 +112,7 @@ features:
     ticket-panel-channel: "ticket-logs"
     # Channel where transcripts are uploaded (name or channel ID)
     transcript-channel: "ticket-logs"
+    # Role ID (preferred) or role name of the ticket support staff
     support-role: "Support"
     max-open-tickets: 3
     auto-close-hours: 48
@@ -277,6 +280,7 @@ features:
     # Sync Minecraft kicks/mutes to Discord and Discord timeouts/mutes to Minecraft chat
     sync-kicks: false
     sync-mutes: false
+    # Role ID (preferred) or role name applied for permanent mutes
     muted-role: "Muted"
     log-channel: "mod-logs"
     auto-moderate: true
@@ -513,6 +517,7 @@ features:
   whitelist:
     enabled: true
     whitelist-channel: "whitelist"
+    # Role ID (preferred) or role name allowed to manage whitelist requests
     support-role: "Support"
     auto-whitelist: true
     dm-on-accept: true
@@ -520,6 +525,7 @@ features:
 
   # Self-assignable role menus. Buttons toggle a role on/off.
   # Post a menu with /rolemenu post <id> in Discord.
+  # Each option's "role" accepts a role ID (preferred) or role name.
   role-menus:
     enabled: true
     panels:
