@@ -704,6 +704,75 @@ public class DatabaseManager {
     }
     
     /**
+     * Snapshot of an open ticket row, enough to rebuild it in memory.
+     */
+    public static class TicketRecovery {
+        public final int id;
+        public final String discordId;
+        public final String minecraftName;
+        public final String subject;
+        public final String channelId;
+
+        public TicketRecovery(int id, String discordId, String minecraftName, String subject, String channelId) {
+            this.id = id;
+            this.discordId = discordId;
+            this.minecraftName = minecraftName;
+            this.subject = subject;
+            this.channelId = channelId;
+        }
+    }
+
+    /**
+     * Find the open ticket that owns a Discord channel.
+     */
+    public CompletableFuture<TicketRecovery> getOpenTicketByChannel(String channelId) {
+        return executeAsync(() -> {
+            String sql = "SELECT t.id, t.subject, t.discord_channel_id, v.discord_id, v.minecraft_name " +
+                "FROM tickets t JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
+                "WHERE t.discord_channel_id = ? AND t.status = 'OPEN' LIMIT 1";
+
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+                stmt.setString(1, channelId);
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return new TicketRecovery(rs.getInt("id"), rs.getString("discord_id"),
+                            rs.getString("minecraft_name"), rs.getString("subject"),
+                            rs.getString("discord_channel_id"));
+                    }
+                }
+            }
+            return null;
+        });
+    }
+
+    /**
+     * List every open ticket that has a Discord channel attached.
+     */
+    public CompletableFuture<List<TicketRecovery>> getOpenTicketChannels() {
+        return executeAsync(() -> {
+            String sql = "SELECT t.id, t.subject, t.discord_channel_id, v.discord_id, v.minecraft_name " +
+                "FROM tickets t JOIN verified_users v ON v.minecraft_uuid = t.minecraft_uuid " +
+                "WHERE t.status = 'OPEN' AND t.discord_channel_id IS NOT NULL";
+
+            List<TicketRecovery> rows = new ArrayList<>();
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+
+                while (rs.next()) {
+                    rows.add(new TicketRecovery(rs.getInt("id"), rs.getString("discord_id"),
+                        rs.getString("minecraft_name"), rs.getString("subject"),
+                        rs.getString("discord_channel_id")));
+                }
+            }
+            return rows;
+        });
+    }
+
+    /**
      * Close a ticket
      */
     public CompletableFuture<Boolean> closeTicket(int ticketId) {

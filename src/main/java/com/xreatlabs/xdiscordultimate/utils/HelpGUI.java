@@ -439,19 +439,19 @@ public class HelpGUI implements Listener {
         player.closeInventory();
         openGUIs.remove(player.getUniqueId());
         
-        plugin.getMessageManager().sendInfo(player, "=== XDiscordUltimate Information ===");
-        plugin.getMessageManager().sendInfo(player, "Version: " + plugin.getDescription().getVersion());
-        plugin.getMessageManager().sendInfo(player, "Author: XreaLabs");
-        plugin.getMessageManager().sendInfo(player, "Description: " + plugin.getDescription().getDescription());
-        plugin.getMessageManager().sendInfo(player, "");
-        plugin.getMessageManager().sendInfo(player, "Features:");
-        plugin.getMessageManager().sendInfo(player, "• Discord-Minecraft integration");
-        plugin.getMessageManager().sendInfo(player, "• Player verification system");
-        plugin.getMessageManager().sendInfo(player, "• Report and ticket system");
-        plugin.getMessageManager().sendInfo(player, "• Voice/TTS features");
-        plugin.getMessageManager().sendInfo(player, "• Admin console access");
-        plugin.getMessageManager().sendInfo(player, "");
-        plugin.getMessageManager().sendInfo(player, "Use &b/help &7to open the help GUI again!");
+        player.sendMessage(color("<gradient:#55FFFF:#5555FF>━━━ XDiscordUltimate Information ━━━</gradient>"));
+        player.sendMessage(color("&7Version: &f" + plugin.getDescription().getVersion()));
+        player.sendMessage(color("&7Author: &fXReatLabs"));
+        player.sendMessage(color("&7Description: &f" + plugin.getDescription().getDescription()));
+        player.sendMessage("");
+        player.sendMessage(color("<gradient:#55FF55:#55FFFF>Features:</gradient>"));
+        player.sendMessage(color("&8▸ &7Discord-Minecraft integration"));
+        player.sendMessage(color("&8▸ &7Player verification system"));
+        player.sendMessage(color("&8▸ &7Report and ticket system"));
+        player.sendMessage(color("&8▸ &7Voice/TTS features"));
+        player.sendMessage(color("&8▸ &7Admin console access"));
+        player.sendMessage("");
+        player.sendMessage(color("&7Use &b/help &7to open the help GUI again!"));
     }
     
     private ItemStack createItem(Material material, String name, String... lore) {

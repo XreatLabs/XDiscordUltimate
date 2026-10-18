@@ -66,6 +66,7 @@ Discord:
 ## Notes
 
 - Open tickets are persisted to `tickets.yml`; panel messages are edited in place after restarts.
+- If `tickets.yml` loses an open ticket, the module rebuilds it from the tickets database at startup and then when a ticket command is used in that channel.
 - Override embed styling with `messages.embeds.ticket-panel`, `ticket-welcome`, and `ticket-closed`.
 - Without `types` the panel shows a single default button; button panels show at most 5 types, dropdown panels at most 25.
 - Transcripts are written to the plugin's `transcripts` folder and uploaded when `save-transcript` is true.

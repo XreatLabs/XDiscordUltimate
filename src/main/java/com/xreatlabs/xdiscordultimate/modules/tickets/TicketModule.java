@@ -2,6 +2,7 @@ package com.xreatlabs.xdiscordultimate.modules.tickets;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
 
 import com.xreatlabs.xdiscordultimate.XDiscordUltimate;
+import com.xreatlabs.xdiscordultimate.database.DatabaseManager;
 import com.xreatlabs.xdiscordultimate.modules.Module;
 import com.xreatlabs.xdiscordultimate.modules.DependsOn;
 import com.xreatlabs.xdiscordultimate.utils.EmbedUtils;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import com.xreatlabs.xdiscordultimate.utils.SchedulerCompat;
 
 @DependsOn({"verification"})
@@ -215,6 +217,9 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
             // Restore tickets that survived a restart
             restoreActiveTickets();
 
+            // Rebuild tickets the local file lost but the database still knows about
+            recoverOpenTicketsFromDatabase();
+
             // Create or update the ticket panel
             createTicketPanel();
             
@@ -356,8 +361,10 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleSlashTicketEdit(SlashCommandInteractionEvent event, Member member, String editType) {
-        Ticket ticket = resolveTicketFromEvent(event);
-        if (ticket == null) return;
+        resolveTicketFromEvent(event, ticket -> applyTicketEdit(event, member, editType, ticket));
+    }
+
+    private void applyTicketEdit(SlashCommandInteractionEvent event, Member member, String editType, Ticket ticket) {
         if (!checkEditPermission(event, member, ticket)) return;
 
         switch (editType == null ? "" : editType.toLowerCase()) {
@@ -612,13 +619,12 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
 
     private void handleSlashTicketPriority(SlashCommandInteractionEvent event, Member member) {
         String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
-        if (ticketId == null) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
-                    "This command can only be used inside an active ticket channel.").build())
-                .setEphemeral(true).queue();
-            return;
-        }
+        resolveTicketChannel(channelId,
+            ticketId -> applyTicketPriority(event, member, channelId, ticketId),
+            () -> replyNotATicketChannel(event));
+    }
+
+    private void applyTicketPriority(SlashCommandInteractionEvent event, Member member, String channelId, String ticketId) {
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Ticket Not Found",
@@ -716,14 +722,12 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleTextCloseTicket(MessageReceivedEvent event, Member member, String reason) {
-        String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
+        resolveTicketChannel(event.getChannel().getId(),
+            ticketId -> applyTextCloseTicket(event, member, reason, ticketId),
+            () -> event.getMessage().reply("This is not a valid ticket channel!").queue());
+    }
 
-        if (ticketId == null) {
-            event.getMessage().reply("This is not a valid ticket channel!").queue();
-            return;
-        }
-
+    private void applyTextCloseTicket(MessageReceivedEvent event, Member member, String reason, String ticketId) {
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) {
             event.getMessage().reply("Ticket not found.").queue();
@@ -796,16 +800,12 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleSlashCloseTicket(SlashCommandInteractionEvent event, Member member) {
-        String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
+        resolveTicketChannel(event.getChannel().getId(),
+            ticketId -> applySlashCloseTicket(event, member, ticketId),
+            () -> replyNotATicketChannel(event));
+    }
 
-        if (ticketId == null) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
-                    "This command can only be used inside an active ticket channel.").build())
-                .setEphemeral(true).queue();
-            return;
-        }
-
+    private void applySlashCloseTicket(SlashCommandInteractionEvent event, Member member, String ticketId) {
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) {
             event.replyEmbeds(EmbedUtils.errorEmbed("Ticket Not Found",
@@ -830,8 +830,10 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleSlashParticipant(SlashCommandInteractionEvent event, Member member, boolean add) {
-        Ticket ticket = resolveTicketFromEvent(event);
-        if (ticket == null) return;
+        resolveTicketFromEvent(event, ticket -> applyParticipantChange(event, member, add, ticket));
+    }
+
+    private void applyParticipantChange(SlashCommandInteractionEvent event, Member member, boolean add, Ticket ticket) {
         if (!checkEditPermission(event, member, ticket)) return;
 
         Member target = event.getOption("user").getAsMember();
@@ -1938,16 +1940,14 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleCloseTicket(ButtonInteractionEvent event) {
-        String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
-
-        if (ticketId == null) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
+        resolveTicketChannel(event.getChannel().getId(),
+            ticketId -> applyCloseTicketButton(event, ticketId),
+            () -> event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
                     "This button can only be used inside an active ticket channel.").build())
-                .setEphemeral(true).queue();
-            return;
-        }
+                .setEphemeral(true).queue());
+    }
 
+    private void applyCloseTicketButton(ButtonInteractionEvent event, String ticketId) {
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) return;
 
@@ -1966,12 +1966,13 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     private void handleClaimTicket(ButtonInteractionEvent event) {
+        resolveTicketChannel(event.getChannel().getId(),
+            ticketId -> applyClaimTicket(event, ticketId),
+            () -> { });
+    }
+
+    private void applyClaimTicket(ButtonInteractionEvent event, String ticketId) {
         Member member = event.getMember();
-
-        String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
-
-        if (ticketId == null) return;
 
         Ticket ticket = activeTickets.get(ticketId);
         if (ticket == null) return;
@@ -2451,6 +2452,80 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
         return null;
     }
 
+    /**
+     * Resolve the ticket for a channel, rebuilding it from the database when
+     * the in-memory registry no longer knows about it.
+     */
+    private void resolveTicketChannel(String channelId, Consumer<String> onResolved, Runnable onMissing) {
+        String ticketId = resolveTicketId(channelId);
+        if (ticketId != null) {
+            onResolved.accept(ticketId);
+            return;
+        }
+        plugin.getDatabaseManager().getOpenTicketByChannel(channelId)
+            .thenAccept(recovery -> {
+                if (recovery == null) {
+                    onMissing.run();
+                    return;
+                }
+                registerRecoveredTicket(recovery);
+                onResolved.accept(String.valueOf(recovery.id));
+            })
+            .exceptionally(throwable -> {
+                warning("Ticket recovery failed for channel " + channelId + ": " + throwable.getMessage());
+                onMissing.run();
+                return null;
+            });
+    }
+
+    /**
+     * Rebuild an in-memory ticket from a database row and register its channel.
+     */
+    private void registerRecoveredTicket(DatabaseManager.TicketRecovery recovery) {
+        String ticketId = String.valueOf(recovery.id);
+        if (activeTickets.containsKey(ticketId)) return;
+        String subject = recovery.subject != null && !recovery.subject.isEmpty()
+            ? recovery.subject : "General Support";
+        String minecraftName = recovery.minecraftName != null ? recovery.minecraftName : "Unknown";
+        Ticket ticket = new Ticket(ticketId, recovery.discordId, minecraftName, subject, recovery.channelId);
+        ticket.dbId = recovery.id;
+        ticket.welcomeButtons.add(buildActionButton("DANGER", "close_ticket", closeButtonLabel, closeButtonEmoji));
+        ticket.welcomeButtons.add(buildActionButton("SECONDARY", "claim_ticket", claimButtonLabel, claimButtonEmoji));
+        activeTickets.put(ticketId, ticket);
+        channelToTicket.put(recovery.channelId, ticketId);
+        if (recovery.discordId != null) {
+            userTicketCount.merge(recovery.discordId, 1, Integer::sum);
+        }
+        info("Recovered ticket #" + ticketId + " from the database");
+        SchedulerCompat.runTask(plugin, this::saveActiveTickets);
+    }
+
+    /**
+     * Rebuild open tickets that exist in the database but not in memory.
+     */
+    private void recoverOpenTicketsFromDatabase() {
+        Guild guild = plugin.getDiscordManager() != null ? plugin.getDiscordManager().getMainGuild() : null;
+        if (guild == null) return;
+        plugin.getDatabaseManager().getOpenTicketChannels()
+            .thenAccept(rows -> {
+                int recovered = 0;
+                for (DatabaseManager.TicketRecovery row : rows) {
+                    if (row.channelId == null || row.channelId.isEmpty()) continue;
+                    if (channelToTicket.containsKey(row.channelId)) continue;
+                    if (guild.getTextChannelById(row.channelId) == null) continue;
+                    registerRecoveredTicket(row);
+                    recovered++;
+                }
+                if (recovered > 0) {
+                    info("Recovered " + recovered + " ticket(s) from the database");
+                }
+            })
+            .exceptionally(throwable -> {
+                warning("Could not recover tickets from the database: " + throwable.getMessage());
+                return null;
+            });
+    }
+
     private String formatDuration(long millis) {
         long hours = TimeUnit.MILLISECONDS.toHours(millis);
         long minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60;
@@ -2567,26 +2642,29 @@ public class TicketModule extends Module implements org.bukkit.event.Listener {
     }
 
     /**
-     * Resolve a ticket from a slash command event's channel.
-     * Returns null and sends an ephemeral error embed if the channel is not a ticket channel.
+     * Resolve a ticket from a slash command event's channel, falling back to
+     * the database when the in-memory registry lost it. Sends an ephemeral
+     * error embed when the channel really has no open ticket.
      */
-    private Ticket resolveTicketFromEvent(SlashCommandInteractionEvent event) {
-        String channelId = event.getChannel().getId();
-        String ticketId = resolveTicketId(channelId);
-        if (ticketId == null) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
-                    "This command can only be used inside an active ticket channel.").build())
-                .setEphemeral(true).queue();
-            return null;
-        }
-        Ticket ticket = activeTickets.get(ticketId);
-        if (ticket == null) {
-            event.replyEmbeds(EmbedUtils.errorEmbed("Ticket Not Found",
-                    "This ticket is no longer active.").build())
-                .setEphemeral(true).queue();
-            return null;
-        }
-        return ticket;
+    private void resolveTicketFromEvent(SlashCommandInteractionEvent event, Consumer<Ticket> onResolved) {
+        resolveTicketChannel(event.getChannel().getId(),
+            ticketId -> {
+                Ticket ticket = activeTickets.get(ticketId);
+                if (ticket == null) {
+                    event.replyEmbeds(EmbedUtils.errorEmbed("Ticket Not Found",
+                            "This ticket is no longer active.").build())
+                        .setEphemeral(true).queue();
+                    return;
+                }
+                onResolved.accept(ticket);
+            },
+            () -> replyNotATicketChannel(event));
+    }
+
+    private void replyNotATicketChannel(SlashCommandInteractionEvent event) {
+        event.replyEmbeds(EmbedUtils.errorEmbed("Not a Ticket Channel",
+                "This command can only be used inside an active ticket channel.").build())
+            .setEphemeral(true).queue();
     }
 
     /**
