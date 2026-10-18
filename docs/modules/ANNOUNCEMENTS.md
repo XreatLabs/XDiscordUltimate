@@ -1,6 +1,6 @@
 # Announcements
 
-Broadcasts announcements in-game and to Discord, with optional recurring schedules. Also used by the in-game `/announce` command.
+Broadcasts announcements on an animated boss bar in-game and to Discord, with optional recurring schedules. Also used by the in-game `/announce` command. Nothing is posted to chat: the title and message appear on the boss bar, which shimmers and drains over its duration.
 
 ## Configuration
 
@@ -12,7 +12,7 @@ Keys under `features.announcements`:
 | `default-channel` | `"announcements"` | Discord channel used for announcements. |
 | `send-to-discord` | `false` | When true, announcements are posted to Discord as embeds. |
 | `boss-bar.enabled` | `true` | Show each announcement on a boss bar for its duration. |
-| `boss-bar.seconds` | `15` | Seconds the boss bar stays on screen. |
+| `boss-bar.seconds` | `10` | Seconds before the boss bar fades away. |
 | `boss-bar.color` | `"BLUE"` | Boss bar color: `BLUE`, `GREEN`, `PINK`, `PURPLE`, `RED`, `WHITE`, `YELLOW`. |
 | `boss-bar.style` | `"SOLID"` | Boss bar style: `SOLID`, `SEGMENTED_6`, `SEGMENTED_10`, `SEGMENTED_12`, `SEGMENTED_20`. |
 | `scheduled` | `{}` | Map of recurring announcements. |

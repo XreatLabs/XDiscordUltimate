@@ -323,12 +323,13 @@ features:
     sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
     discord-color: "#FFD700"
 
-    # Briefly shows each announcement on a boss bar above the hotbar.
+    # Announcements are shown on an animated boss bar above the hotbar:
+    # the text shimmers and the bar drains until it disappears.
     # color: BLUE, GREEN, PINK, PURPLE, RED, WHITE, YELLOW
     # style: SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20
     boss-bar:
       enabled: true
-      seconds: 15
+      seconds: 10
       color: "BLUE"
       style: "SOLID"
 

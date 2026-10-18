@@ -30,6 +30,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.awt.Color;
 import java.time.Instant;
 import java.util.*;
 import java.util.Collections;
@@ -49,13 +50,13 @@ public class AnnouncementModule extends Module implements Listener {
     private boolean enableAutoAnnouncements;
     private boolean enableJoinAnnouncements;
     private boolean enableDiscordSync;
-    private String announcementPrefix;
     private Sound announcementSound;
     private boolean bossBarEnabled;
     private int bossBarSeconds;
     private BarColor bossBarColor;
     private BarStyle bossBarStyle;
-    private final List<BossBar> activeBossBars = Collections.synchronizedList(new ArrayList<>());
+    private final Map<UUID, ActiveBossBar> bossBars = new ConcurrentHashMap<>();
+    private BukkitTask bossBarTask;
     
     public AnnouncementModule(XDiscordUltimate plugin) {
         super(plugin);
@@ -94,12 +95,14 @@ public class AnnouncementModule extends Module implements Listener {
         scheduledAnnouncements.clear();
         
         // Remove any boss bars that are still showing
-        synchronized (activeBossBars) {
-            for (BossBar bar : activeBossBars) {
-                bar.removeAll();
-            }
-            activeBossBars.clear();
+        if (bossBarTask != null) {
+            bossBarTask.cancel();
+            bossBarTask = null;
         }
+        for (ActiveBossBar active : bossBars.values()) {
+            active.bar.removeAll();
+        }
+        bossBars.clear();
 
         // Save muted players
         saveMutedPlayers();
@@ -278,10 +281,9 @@ public class AnnouncementModule extends Module implements Listener {
             enableJoinAnnouncements = true;
             enableDiscordSync = config.getBoolean("send-to-discord", false);
             bossBarEnabled = config.getBoolean("boss-bar.enabled", true);
-            bossBarSeconds = Math.max(3, config.getInt("boss-bar.seconds", 15));
+            bossBarSeconds = Math.max(3, config.getInt("boss-bar.seconds", 10));
             bossBarColor = parseBarColor(config.getString("boss-bar.color", "BLUE"));
             bossBarStyle = parseBarStyle(config.getString("boss-bar.style", "SOLID"));
-            announcementPrefix = ColorUtils.parse("<gradient:#FFD700:#FFA500>✦ Announcement</gradient> &8» &r");
         } else {
             warning("Config section not found, using defaults");
             announcementChannel = "announcements";
@@ -289,10 +291,9 @@ public class AnnouncementModule extends Module implements Listener {
             enableJoinAnnouncements = true;
             enableDiscordSync = false;
             bossBarEnabled = true;
-            bossBarSeconds = 15;
+            bossBarSeconds = 10;
             bossBarColor = BarColor.BLUE;
             bossBarStyle = BarStyle.SOLID;
-            announcementPrefix = ColorUtils.parse("<gradient:#FFD700:#FFA500>✦ Announcement</gradient> &8» &r");
         }
         
         announcementSound = Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
@@ -442,43 +443,8 @@ public class AnnouncementModule extends Module implements Listener {
     }
     
     private void sendMinecraftAnnouncement(Announcement announcement) {
-        // Build the message with simple formatting (no complex gradients for compatibility)
-        List<String> formattedMessages = new ArrayList<>();
+        String text = buildBossBarText(announcement);
 
-        // Calculate title width for centering
-        String titleText = announcement.title.isEmpty() ? "ANNOUNCEMENT" : announcement.title;
-        int titleWidth = titleText.length();
-        int totalWidth = 40; // Reduced from 46 for better chat fit
-        int padding = (totalWidth - titleWidth - 4) / 2; // 4 for "  * " and "  *"
-
-        // Top border
-        formattedMessages.add(ColorUtils.parse("&8&l╔════════════════════════════════════╗"));
-
-        // Title line with centered text and star icons
-        if (!announcement.title.isEmpty()) {
-            StringBuilder titleLine = new StringBuilder();
-            titleLine.append("&8&l║ &6&l⭐ ");
-            titleLine.append(titleText);
-            titleLine.append(" &6&l⭐ &8&l║");
-            formattedMessages.add(ColorUtils.parse(titleLine.toString()));
-        }
-
-        // Divider line
-        formattedMessages.add(ColorUtils.parse("&8&l╠════════════════════════════════════╣"));
-        formattedMessages.add("");
-
-        // Add messages (simple & color codes for compatibility)
-        for (String message : announcement.messages) {
-            // Wrap message with borders
-            String wrapped = wrapMessageInBorder(message, totalWidth);
-            formattedMessages.add(ColorUtils.parse(wrapped));
-            formattedMessages.add("");
-        }
-
-        // Bottom border
-        formattedMessages.add(ColorUtils.parse("&8&l╚════════════════════════════════════╝"));
-
-        // Send to players
         for (Player player : Bukkit.getOnlinePlayers()) {
             // Check if player has muted announcements
             if (mutedPlayers.contains(player.getUniqueId())) {
@@ -490,19 +456,23 @@ public class AnnouncementModule extends Module implements Listener {
                 continue;
             }
 
-            // Send messages
-            for (String line : formattedMessages) {
-                player.sendMessage(line);
-            }
-
             // Play sound
             if (announcementSound != null) {
                 player.playSound(player.getLocation(), announcementSound, 1.0f, 1.0f);
             }
 
-            // Show the message on a boss bar
-            showBossBar(player, String.join(" ", announcement.messages));
+            // Announcements are shown on an animated boss bar
+            showBossBar(player, text);
         }
+    }
+
+    private String buildBossBarText(Announcement announcement) {
+        StringBuilder text = new StringBuilder();
+        if (announcement.title != null && !announcement.title.isEmpty()) {
+            text.append(announcement.title).append(' ');
+        }
+        text.append(String.join(" ", announcement.messages));
+        return text.toString().trim();
     }
 
     private BarColor parseBarColor(String value) {
@@ -524,37 +494,109 @@ public class AnnouncementModule extends Module implements Listener {
     private void showBossBar(Player player, String text) {
         if (!bossBarEnabled || text == null || text.isEmpty()) return;
         try {
-            String title = ColorUtils.parse(text).replace('\n', ' ').replace('\r', ' ').trim();
-            if (title.length() > 256) {
-                title = title.substring(0, 253) + "...";
+            String plain = ChatColor.stripColor(ColorUtils.parse(text))
+                .replace('\n', ' ').replace('\r', ' ').trim();
+            if (plain.isEmpty()) return;
+            if (plain.length() > 200) {
+                plain = plain.substring(0, 197) + "...";
             }
-            BossBar bar = Bukkit.createBossBar(title, bossBarColor, bossBarStyle);
+
+            removeBossBar(player.getUniqueId());
+
+            BossBar bar = Bukkit.createBossBar("", bossBarColor, bossBarStyle);
             bar.setProgress(1.0);
             bar.addPlayer(player);
-            activeBossBars.add(bar);
-            SchedulerCompat.runTaskLater(plugin, () -> {
-                activeBossBars.remove(bar);
-                bar.removeAll();
-            }, bossBarSeconds * 20L);
+            ActiveBossBar active = new ActiveBossBar(bar, plain, System.currentTimeMillis(), bossBarSeconds * 1000L);
+            active.update(0);
+            bossBars.put(player.getUniqueId(), active);
+            startBossBarTask();
         } catch (Exception ignored) {
         }
     }
 
+    private void removeBossBar(UUID playerId) {
+        ActiveBossBar active = bossBars.remove(playerId);
+        if (active != null) {
+            active.bar.removeAll();
+        }
+    }
+
     /**
-     * Wrap a message in a bordered box format
-     * Note: Returns raw color codes - caller must parse the result
+     * Drives the progress countdown and the shimmering text of every active
+     * boss bar from a single task.
      */
-    private String wrapMessageInBorder(String message, int totalWidth) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("&8&l║ &e");
-        sb.append(message);
-        // Calculate remaining space (strip color codes to get actual visible length)
-        String strippedMessage = ChatColor.stripColor(message);
-        int remaining = totalWidth - 5 - strippedMessage.length();
-        sb.append("&8&l");
-        for (int i = 0; i < Math.max(0, remaining); i++) sb.append(" ");
-        sb.append("║");
-        return sb.toString();
+    private void startBossBarTask() {
+        if (bossBarTask != null && !bossBarTask.isCancelled()) return;
+        bossBarTask = SchedulerCompat.runTaskTimer(plugin, () -> {
+            long now = System.currentTimeMillis();
+            Iterator<ActiveBossBar> iterator = bossBars.values().iterator();
+            while (iterator.hasNext()) {
+                ActiveBossBar active = iterator.next();
+                if (active.isFinished(now)) {
+                    active.bar.removeAll();
+                    iterator.remove();
+                } else {
+                    active.update((int) ((now - active.startedAt) / 100L));
+                }
+            }
+            if (bossBars.isEmpty()) {
+                if (bossBarTask != null) {
+                    bossBarTask.cancel();
+                }
+                bossBarTask = null;
+            }
+        }, 0L, 2L);
+    }
+
+    private static class ActiveBossBar {
+
+        private static final Color SHIMMER_DARK = new Color(255, 140, 0);
+        private static final Color SHIMMER_LIGHT = new Color(255, 240, 150);
+
+        private final BossBar bar;
+        private final String text;
+        private final long startedAt;
+        private final long durationMillis;
+
+        private ActiveBossBar(BossBar bar, String text, long startedAt, long durationMillis) {
+            this.bar = bar;
+            this.text = text;
+            this.startedAt = startedAt;
+            this.durationMillis = durationMillis;
+        }
+
+        private boolean isFinished(long now) {
+            return now - startedAt >= durationMillis;
+        }
+
+        private void update(int frame) {
+            long elapsed = System.currentTimeMillis() - startedAt;
+            float remaining = durationMillis <= 0 ? 0f : (durationMillis - elapsed) / (float) durationMillis;
+            bar.setProgress(Math.max(0f, Math.min(1f, remaining)));
+            bar.setTitle(shimmer(frame));
+        }
+
+        private String shimmer(int frame) {
+            int length = text.length();
+            StringBuilder builder = new StringBuilder(length * 8);
+            for (int i = 0; i < length; i++) {
+                float wave = (i / (float) Math.max(1, length) + frame * 0.03f) % 2.0f;
+                if (wave > 1.0f) wave = 2.0f - wave;
+                builder.append(hexColor(
+                    (int) (SHIMMER_DARK.getRed() + (SHIMMER_LIGHT.getRed() - SHIMMER_DARK.getRed()) * wave),
+                    (int) (SHIMMER_DARK.getGreen() + (SHIMMER_LIGHT.getGreen() - SHIMMER_DARK.getGreen()) * wave),
+                    (int) (SHIMMER_DARK.getBlue() + (SHIMMER_LIGHT.getBlue() - SHIMMER_DARK.getBlue()) * wave)));
+                builder.append(text.charAt(i));
+            }
+            return builder.toString();
+        }
+
+        private String hexColor(int red, int green, int blue) {
+            return String.format("§x§%X§%X§%X§%X§%X§%X",
+                (red >> 4) & 0xF, red & 0xF,
+                (green >> 4) & 0xF, green & 0xF,
+                (blue >> 4) & 0xF, blue & 0xF);
+        }
     }
     
     private void sendAnnouncementToPlayer(Player player, Announcement announcement) {
@@ -566,24 +608,11 @@ public class AnnouncementModule extends Module implements Listener {
             return;
         }
         
-        // Build the message
-        player.sendMessage(ColorUtils.parse("<gradient:#FFD700:#FFA500>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</gradient>"));
-        if (!announcement.title.isEmpty()) {
-            player.sendMessage(announcementPrefix + ColorUtils.parse("&e" + announcement.title));
-            player.sendMessage("");
-        }
-        
-        for (String message : announcement.messages) {
-            player.sendMessage(ColorUtils.parse(message));
-        }
-        
-        player.sendMessage(ColorUtils.parse("<gradient:#FFD700:#FFA500>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</gradient>"));
-        
         if (announcementSound != null) {
             player.playSound(player.getLocation(), announcementSound, 1.0f, 1.0f);
         }
 
-        showBossBar(player, String.join(" ", announcement.messages));
+        showBossBar(player, buildBossBarText(announcement));
     }
     
     private void sendDiscordAnnouncement(Announcement announcement) {
