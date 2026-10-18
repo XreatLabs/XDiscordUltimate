@@ -61,8 +61,11 @@ public class LibraryManager {
             loadLibrary("com.mysql", "mysql-connector-j", "8.0.33");
             loadLibrary("org.postgresql", "postgresql", "42.6.0");
             
-            // SLF4J API (JDA needs an SLF4J binding; the server already provides one)
-            loadLibrary("org.slf4j", "slf4j-api", "2.0.9");
+            // SLF4J API - the server ships its own copy together with a logging binding,
+            // so only download it when the class is truly missing
+            if (!isClassAvailable("org.slf4j.LoggerFactory")) {
+                loadLibrary("org.slf4j", "slf4j-api", "2.0.9");
+            }
             // Do NOT load logback-classic, log4j-core, or log4j-api at runtime - the server
             // already provides a Log4j binding and loading extra bindings causes conflicts.
 
@@ -74,6 +77,15 @@ public class LibraryManager {
         }
     }
     
+    private boolean isClassAvailable(String className) {
+        try {
+            Class.forName(className, false, LibraryManager.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
     private void loadLibrary(String groupId, String artifactId, String version) {
         plugin.getLogger().info("Loading " + groupId + ":" + artifactId + ":" + version);
         
